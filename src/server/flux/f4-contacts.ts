@@ -1,6 +1,7 @@
 import { sysSql } from "../db";
 import { rechercher } from "../sources/web";
-import { normaliser, sansAccents } from "../texte";
+import { sansAccents } from "../texte";
+import { profilCorrespond } from "./linkedin";
 import { evenement } from "./runs";
 
 /**
@@ -124,17 +125,12 @@ export async function trouverContacts(siren: string) {
       }
     }
 
-    // (d) LinkedIn
+    // (d) LinkedIn : prénom + nom dans le titre, et société (ou lieu, pour une entreprise individuelle).
     if (!c.linkedin_url && c.prenom) {
-      const societe = normaliser(e.nom);
-      const enseignes = e.enseignes.map(normaliser);
+      const ei = e.nature_juridique === "1000";
       try {
-        const res = await rechercher(`${c.prenom} ${c.nom} ${e.enseignes[0] ?? e.nom} linkedin`);
-        const profil = res.find((x) => {
-          if (!/linkedin\.com\/in\//.test(x.url)) return false;
-          const t = ` ${normaliser(x.titre)} `;
-          return t.includes(` ${normaliser(c.nom)} `) && (t.includes(societe) || enseignes.some((s: string) => s && t.includes(s)));
-        });
+        const res = await rechercher(ei ? `"${c.prenom} ${c.nom}" ${e.commune ?? ""} linkedin` : `"${c.prenom} ${c.nom}" ${e.enseignes[0] ?? e.nom} linkedin`);
+        const profil = res.find((x) => profilCorrespond(x, { prenom: c.prenom, nom: c.nom, ei, raisonSociale: e.nom, enseignes: e.enseignes, commune: e.commune, departement: e.departement }));
         if (profil) {
           const url = profil.url.split("?")[0];
           await sql`update hub.contacts set linkedin_url = ${url}, linkedin_source = ${SOURCE_LINKEDIN}, maj_le = now()

@@ -5,6 +5,7 @@ import { sourcer } from "../src/server/flux/f1-sourcer";
 import { resoudre } from "../src/server/flux/f2-resoudre";
 import { extraire } from "../src/server/flux/f3-extraire";
 import { scorer } from "../src/server/flux/f5-scorer";
+import { qualifierParLinkedin } from "../src/server/flux/f5b-linkedin";
 import { trouverContacts } from "../src/server/flux/f4-contacts";
 import { sequencer } from "../src/server/flux/f6-sequencer";
 import { envoyerDus } from "../src/server/flux/envoi";
@@ -49,6 +50,8 @@ const PROCESSORS: Partial<Record<QueueName, { fn: Processor; concurrency: number
     concurrency: 2,
   },
   scorer: { fn: async (job) => scorer(job.data.siren, job.data.ligne), concurrency: 2 },
+  // Voie LinkedIn des comptes sans site (une recherche par dirigeant, puis qualification).
+  linkedin: { fn: async (job) => qualifierParLinkedin(job.data.siren, job.data.ligne), concurrency: 2 },
   // F6 : une ligne à la fois (rédaction par le GPU partagé).
   sequencer: { fn: async (job) => sequencer(job.data.ligne, { max: job.data.max, siren: job.data.siren }), concurrency: 1 },
   // Tâches périodiques : envoi (2 min), relevé des réponses (5 min), F6 quotidien (8 h, jours ouvrés).

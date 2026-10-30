@@ -86,7 +86,7 @@ export async function sequencer(ligneCode: string, opts: { max?: number; siren?:
     from hub.ciblages c
     join hub.entreprises e on e.siren = c.siren
     join hub.scores s on s.siren = c.siren and s.ligne_code = c.ligne_code and s.version_grille = ${l.grille_version}
-    where c.ligne_code = ${ligneCode} and c.statut = 'qualifie' and c.score_total >= ${l.seuil_score}
+    where c.ligne_code = ${ligneCode} and c.statut = 'qualifie' and (c.score_total >= ${l.seuil_score} or s.raisons->>'voie' = 'linkedin')
       ${opts.siren ? sql`and c.siren = ${opts.siren}` : sql``}
       and not exists (select 1 from hub.sequences q join hub.contacts x on x.id = q.contact_id
                       where x.siren = c.siren and q.statut in ('planifiee', 'en_cours'))
@@ -179,6 +179,12 @@ async function preparer(l: Record<string, any>, compte: Record<string, any>, con
       await tx`insert into hub.echanges (contact_id, sequence_id, ligne_code, canal, sens, corps, statut_envoi, etape, controle, modele)
                values (${contact.id}, ${seq.id}, ${l.code}, 'linkedin', 'sortant', ${r.data.linkedin_note}, 'a_valider', ${canal === "linkedin" ? 0 : 3},
                        ${tx.json(r.controles.linkedin_note as never)}, ${r.modele})`;
+    }
+    // Canal LinkedIn seul : deuxième touche, un message une semaine après l'invitation (cahier §8).
+    if (canal === "linkedin") {
+      await tx`insert into hub.echanges (contact_id, sequence_id, ligne_code, canal, sens, corps, statut_envoi, etape, controle, modele)
+               values (${contact.id}, ${seq.id}, ${l.code}, 'linkedin', 'sortant', ${r.data.j7.corps}, 'a_valider', 7,
+                       ${tx.json(r.controles.j7 as never)}, ${r.modele})`;
     }
     if (contact.telephone && l.canaux_autorises.includes("telephone")) {
       await tx`insert into hub.echanges (contact_id, sequence_id, ligne_code, canal, sens, corps, statut_envoi, etape, controle, modele)

@@ -191,3 +191,18 @@ describe("salutation et prénoms", async () => {
     expect(sansSalutation("Bonjour Julien, j'écris au nom de Tonton Gégé.")).toBe("j'écris au nom de Tonton Gégé.");
   });
 });
+
+describe("reconnaissance des profils LinkedIn", async () => {
+  const { profilCorrespond } = await import("../src/server/flux/linkedin");
+  const societe = { prenom: "Simon", nom: "Chiuppi", ei: false, raisonSociale: "VINISIM", enseignes: [], commune: "ARLES", departement: "13" };
+  const ei = { prenom: "Lucien", nom: "Martinez", ei: true, raisonSociale: "LUCIEN MARTINEZ", enseignes: [], commune: "PERPIGNAN", departement: "66" };
+  it("société : prénom + nom + mot de la raison sociale", () => {
+    expect(profilCorrespond({ url: "https://fr.linkedin.com/in/simon-chiuppi", titre: "Simon Chiuppi - VINISIM | LinkedIn", extrait: "" }, societe)).toBe(true);
+    expect(profilCorrespond({ url: "https://fr.linkedin.com/in/x", titre: "Simon Chiuppi - Airbus | LinkedIn", extrait: "" }, societe)).toBe(false);
+    expect(profilCorrespond({ url: "https://fr.linkedin.com/in/x", titre: "Thomas Fonlupt - VINISIM | LinkedIn", extrait: "" }, societe)).toBe(false);
+  });
+  it("entreprise individuelle : un lieu cohérent est exigé (homonymes)", () => {
+    expect(profilCorrespond({ url: "https://fr.linkedin.com/in/lm", titre: "Lucien Martinez - Agent commercial vins | LinkedIn", extrait: "Perpignan, Occitanie, France" }, ei)).toBe(true);
+    expect(profilCorrespond({ url: "https://fr.linkedin.com/in/lm2", titre: "Lucien Martinez - Ingénieur | LinkedIn", extrait: "Lille, Hauts-de-France" }, ei)).toBe(false);
+  });
+});

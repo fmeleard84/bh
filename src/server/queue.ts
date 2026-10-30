@@ -5,7 +5,7 @@ import IORedis from "ioredis";
  * Une file par flux (cahier des charges §4). Une file lente (crawl, GPU partagé)
  * ne bloque jamais le traitement des réponses.
  */
-export const QUEUES = ["sourcer", "resoudre", "extraire", "contacts", "scorer", "sequencer", "reponses", "pilotage"] as const;
+export const QUEUES = ["sourcer", "resoudre", "extraire", "contacts", "scorer", "linkedin", "sequencer", "reponses", "pilotage"] as const;
 export type QueueName = (typeof QUEUES)[number];
 
 const g = globalThis as unknown as { __redis?: IORedis; __queues?: Partial<Record<QueueName, Queue>> };

@@ -15,7 +15,7 @@ import { evenement } from "./runs";
  * est retiré ; la classe décide de l'écart et du re-routage, pas le modèle.
  */
 const CLASSES = ["agent", "courtier", "importateur", "distributeur", "caviste", "producteur", "autre"] as const;
-const MOTS_VIN = /\b(vin|vins|vigne|vignoble|vigneron|cave|caves|wine|wines|cru|chateau|domaine|domaines|oeno|bouteille|spirits|champagne|terroir)\b/;
+const MOTS_VIN = /\b(vin|vins|vigne|vignoble|vigneron|vignerons|cave|caves|wine|wines|cru|chateau|domaine|domaines|oeno\w*|bouteille|spirits|spiritueux|champagne|terroir|boissons?)\b/;
 
 /** « … clientèle professionnelle [2, 3]. » → « … clientèle professionnelle. » */
 const sansRenvois = (t: string) => t.replace(/\s*\[\d+(?:\s*,\s*\d+)*\]/g, "").trim();
@@ -100,15 +100,27 @@ export async function scorer(siren: string, ligneCode: string) {
   let statut = "enrichi";
   let motif: string | null = null;
   let rerouter: string | null = null;
-  if (signaux.length && !retenue) {
+  // Sans site, un profil LinkedIn trop pauvre donne « autre » faute d'information : ce n'est pas un motif d'écart.
+  const ecartable = e.site_verifie || sortie.classe_activite !== "autre";
+  if (signaux.length && !retenue && ecartable) {
     statut = "ecarte";
     motif = `classe ${sortie.classe_activite}`;
     const [autre] = await sql`select code from hub.lignes where ${sortie.classe_activite} = any(classes_retenues) and code <> ${ligneCode} limit 1`;
     rerouter = autre?.code ?? null;
-  } else {
+  } else if (e.site_verifie) {
     const contactVerifie = contacts.some((c) => c.email_statut === "valide" || c.telephone_mobile || c.linkedin_url);
-    const complete = e.site_verifie && contactVerifie && constats.length >= 3;
+    const complete = contactVerifie && constats.length >= 3;
     if (complete && scoreTotal >= l.seuil_score) statut = "qualifie";
+  } else if (retenue && constats.length >= 1 && contacts.some((c) => c.linkedin_url) && (l.canaux_autorises as string[]).includes("linkedin")
+             && MOTS_VIN.test(normaliser(`${e.nom} ${e.enseignes.join(" ")} ${signaux.map((x) => `${x.valeur} ${x.extrait}`).join(" ")}`))) {
+    // La voie LinkedIn exige un indice vin/boissons (nom, enseigne ou profil) : « agent commercial » seul ne dit pas de quoi.
+    // Voie LinkedIn : sans site, la grille ne peut pas être notée ; un agent confirmé par son profil
+    // est qualifié pour le seul canal LinkedIn (humain), quel que soit le seuil.
+    statut = "qualifie";
+    (raisons as Record<string, unknown>).voie = "linkedin";
+  }
+  if ((raisons as Record<string, unknown>).voie) {
+    await sql`update hub.scores set raisons = ${sql.json(raisons as never)} where siren = ${siren} and ligne_code = ${ligneCode} and version_grille = ${l.grille_version}`;
   }
   await sql`update hub.ciblages set statut = ${statut}, motif_ecart = ${motif}, rerouter_vers = ${rerouter}, score_total = ${scoreTotal}, maj_le = now()
             where siren = ${siren} and ligne_code = ${ligneCode} and statut in ('source', 'enrichi', 'qualifie', 'ecarte')`;
