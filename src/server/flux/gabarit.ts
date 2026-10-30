@@ -32,7 +32,7 @@ export function citeUnConstat(corps: string, constats: string[]): boolean {
 export function controler(
   etape: "j0" | "j7" | "j14" | "linkedin_note" | "script_appel",
   msg: { objet?: string; corps: string },
-  ctx: { prenom: string | null; constats: string[]; lienAutorise?: boolean; autres?: string },
+  ctx: { prenom: string | null; constats: string[]; lienAutorise?: boolean; autres?: string; sansSite?: boolean },
 ): Controle {
   const defauts: string[] = [];
   const mots = compterMots(msg.corps);
@@ -42,6 +42,7 @@ export function controler(
   if (TUTOIEMENT.test(msg.corps)) defauts.push("tutoiement");
   if (SUPERLATIFS.test(`${msg.objet ?? ""} ${msg.corps}`)) defauts.push("superlatif ou point d'exclamation");
   if (/d[ée]sinscri|ne plus recevoir/i.test(msg.corps)) defauts.push("mention de désinscription (ajoutée par l'outil)");
+  if (ctx.sansSite && /\b(votre|son|leur) site\b/i.test(msg.corps)) defauts.push("parle d'un site alors que les constats viennent de LinkedIn");
   // Un nombre cité doit venir d'un constat prouvé ou de l'offre : le modèle n'invente aucun chiffre.
   const autorises = new Set([...ctx.constats.join(" ").matchAll(/\d+/g), ...(ctx.autres ?? "").matchAll(/\d+/g)].map((m) => m[0]));
   const inventes = [...`${msg.objet ?? ""} ${msg.corps}`.matchAll(/\d+/g)].map((m) => m[0]).filter((n) => !autorises.has(n));

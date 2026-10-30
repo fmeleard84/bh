@@ -215,3 +215,11 @@ describe("réglages de ligne", async () => {
     expect(() => lireGrille("trente points pour les cavistes")).toThrow(/illisible/);
   });
 });
+
+describe("constats venus de LinkedIn", async () => {
+  const { controler } = await import("../src/server/flux/gabarit");
+  it("interdit de parler d'un site inexistant", () => {
+    const c = controler("linkedin_note", { corps: "Lilian, j'ai vu sur votre site que vous êtes agent de vignerons." }, { prenom: "Lilian", constats: ["agent de vignerons"], sansSite: true });
+    expect(c.defauts.join(" | ")).toMatch(/site alors que/);
+  });
+});

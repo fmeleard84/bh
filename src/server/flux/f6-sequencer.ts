@@ -99,10 +99,14 @@ export async function sequencer(ligneCode: string, opts: { max?: number; siren?:
       const contacts = await sql`
         select * from hub.contacts where siren = ${compte.siren} and role_cible and not opt_out
           and not hub.est_supprime(email, siren, ${ligneCode})`;
+      const preuves = new Set((await sql`select preuve_url from hub.signaux where siren = ${compte.siren}`).map((x) => x.preuve_url as string));
+      const surSite = (await sql`select site_verifie from hub.entreprises where siren = ${compte.siren}`)[0].site_verifie as boolean;
+      compte.source_constats = surSite ? "site" : "profil LinkedIn";
       const tries = (contacts as unknown as ContactLigne[])
         .map((c) => ({ ...c, telephone: c.telephone_mobile ?? c.telephone_fixe ?? (compte.tel_societe as string | null) }))
         .filter((c) => choisirGabarit(c, l.canaux_autorises))
-        .sort((a, b) => rang(b) - rang(a));
+        // Le contact dont le profil est la preuve des constats passe devant (sinon : constats d'Aurore, message à Jacques).
+        .sort((a, b) => rang(b) + (preuves.has(b.linkedin_url ?? "") ? 3 : 0) - rang(a) - (preuves.has(a.linkedin_url ?? "") ? 3 : 0));
       const contact = tries[0];
       if (!contact) {
         await sql`update hub.ciblages set statut = 'ecarte', motif_ecart = 'injoignable', prochaine_action_le = now() + interval '90 days', maj_le = now()
@@ -137,6 +141,9 @@ async function rediger(l: Record<string, any>, compte: Record<string, any>, cont
         ? "L'adresse est générique (boîte d'accueil) : n'appelle pas le destinataire par son prénom dans le texte."
         : `Tu peux t'adresser à ${prenomUsuel(contact.prenom) ?? "lui"} par son prénom, avec parcimonie.`,
       "N'écris AUCUNE salutation (ni « Bonjour », ni « À l'attention de ») : l'outil l'ajoute. Commence directement par la phrase qui dit qui écrit.",
+      compte.source_constats === "site"
+        ? "Les constats ont été observés sur le site de sa société."
+        : "Les constats viennent de son profil LinkedIn (sa société n'a pas de site connu) : ne parle JAMAIS de « votre site » ; tu peux dire « votre profil ».",
       "Constats :",
       ...constats.map((c, i) => `${i + 1}. ${c}`),
       retour ? `\nTa version précédente ne respectait pas : ${retour}. Corrige ces points.` : "",
@@ -146,7 +153,8 @@ async function rediger(l: Record<string, any>, compte: Record<string, any>, cont
   });
   // La salutation est écrite par le code, jamais par le modèle (le gabarit générique la massacrait).
   for (const k of ["j0", "j7", "j14"] as const) data[k].corps = `${salutation(gabarit, contact as { prenom: string | null; nom: string })}\n\n${sansSalutation(data[k].corps)}`;
-  const ctx = { prenom: gabarit === "generique" ? null : prenomUsuel(contact.prenom), constats, autres: `${l.offre_entree ?? ""} ${JSON.stringify(l.gabarit)}` };
+  const ctx = { prenom: gabarit === "generique" ? null : prenomUsuel(contact.prenom), constats, autres: `${l.offre_entree ?? ""} ${JSON.stringify(l.gabarit)}`,
+                sansSite: compte.source_constats !== "site" };
   const controles: Record<string, Controle> = {
     j0: controler("j0", data.j0, ctx),
     j7: controler("j7", data.j7, ctx),
