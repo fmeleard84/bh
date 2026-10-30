@@ -11,7 +11,8 @@ export interface Controle {
 }
 
 const SUPERLATIFS = /\b(r[ée]volutionnaire|unique|incroyable|exceptionnel(le)?|extraordinaire|meilleur(e|s)?|leader|n[°o] ?1|booster|innovant(e)?|ultime|parfait(e)?|g[ée]nial(e)?)\b|!/i;
-const TUTOIEMENT = /\b(tu|toi|ton|ta|tes|t'as|t'es)\b/i;
+// Bornes « lettre » Unicode : avec \\b, « vous êtes » contenait le mot « tes ».
+const TUTOIEMENT = /(?<!\p{L})(tu|toi|ton|ta|tes|t'as|t'es)(?!\p{L})/iu;
 const LIEN = /(https?:\/\/|www\.|\b[a-z0-9-]+\.(com|fr|net|io|vin)\b)/gi;
 
 export function compterMots(texte: string): number {

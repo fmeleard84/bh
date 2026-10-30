@@ -136,6 +136,10 @@ describe("contrôle de gabarit", async () => {
     expect(c.defauts.join(" | ")).toMatch(/lien/);
     expect(c.defauts.join(" | ")).toMatch(/une question/);
   });
+  it("ne voit pas de tutoiement dans « vous êtes »", () => {
+    const c = controler("linkedin_note", { corps: "Aurore, vous êtes agent commercial en vins fins." }, { prenom: "Aurore", constats: [] });
+    expect(c.defauts).toEqual([]);
+  });
   it("refuse le tutoiement et les superlatifs", () => {
     const c = controler("j7", { objet: "une idée", corps: "Bonjour Julien, ton agence est la meilleure !" }, ctx);
     expect(c.defauts.join(" | ")).toMatch(/tutoiement/);
