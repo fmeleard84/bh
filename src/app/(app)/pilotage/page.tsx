@@ -1,5 +1,15 @@
+import { revalidatePath } from "next/cache";
 import { requireUser } from "@/server/auth";
 import { asUser } from "@/server/db";
+import { queue } from "@/server/queue";
+
+async function genererRapports() {
+  "use server";
+  const user = await requireUser();
+  if (!user.superAdmin) throw new Error("Réservé à l'administrateur.");
+  await queue("pilotage").add("f8-hebdo", {}, { removeOnComplete: 50 });
+  revalidatePath("/pilotage");
+}
 
 export const dynamic = "force-dynamic";
 
@@ -7,10 +17,12 @@ const STATUTS = ["source", "enrichi", "qualifie", "ecarte", "en_sequence", "repo
 
 export default async function Pilotage() {
   const user = await requireUser();
-  const { entonnoir, runs } = await asUser(user.id, async (sql) => ({
+  const { entonnoir, runs, rapports } = await asUser(user.id, async (sql) => ({
     entonnoir: await sql`select l.code, l.nom, e.statut, coalesce(e.comptes, 0) as comptes
                          from hub.lignes l left join hub.v_entonnoir e on e.ligne_code = l.code order by l.code`,
     runs: await sql`select * from hub.runs order by debut_le desc limit 30`,
+    rapports: await sql`select distinct on (r.ligne_code) r.*, l.nom from hub.rapports r join hub.lignes l on l.code = r.ligne_code
+                        order by r.ligne_code, r.cree_le desc`,
   }));
 
   const parLigne = new Map<string, { nom: string; s: Record<string, number> }>();
@@ -24,8 +36,25 @@ export default async function Pilotage() {
     <div className="space-y-6">
       <header>
         <h1 className="text-2xl font-bold">Pilotage</h1>
-        <p className="muted text-sm">Entonnoir par ligne et santé des flux.</p>
+        <p className="muted text-sm">Rapport hebdomadaire par ligne (lundi 7 h), entonnoir et santé des flux.</p>
       </header>
+
+      <section className="space-y-3">
+        <div className="flex items-center gap-3">
+          <h2 className="font-semibold">Rapports de la semaine</h2>
+          <form action={genererRapports}><button className="pill" type="submit">Générer maintenant</button></form>
+        </div>
+        {rapports.length === 0 && <p className="muted text-sm card p-5">Aucun rapport pour l'instant.</p>}
+        <div className="grid gap-4 md:grid-cols-3">
+          {rapports.map((r) => (
+            <article key={r.id} className="card p-5 text-sm space-y-2">
+              <div className="flex justify-between"><strong>{r.nom}</strong><span className="muted">{r.semaine}</span></div>
+              {(r.alertes as string[]).map((a) => <div key={a} className="pill pill-off">{a}</div>)}
+              <p className="text-2 whitespace-pre-line">{r.resume}</p>
+            </article>
+          ))}
+        </div>
+      </section>
 
       <section className="card p-5 overflow-x-auto">
         <h2 className="font-semibold mb-3">Entonnoir</h2>

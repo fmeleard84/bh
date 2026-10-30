@@ -2,6 +2,7 @@ import { notFound, redirect } from "next/navigation";
 import { peutPiloter, requireUser } from "@/server/auth";
 import { asUser, sysSql } from "@/server/db";
 import { enqueue } from "@/server/queue";
+import { Reglages } from "./reglages";
 
 async function lancer(form: FormData) {
   "use server";
@@ -73,6 +74,7 @@ export default async function FicheLigne({ params }: { params: Promise<{ code: s
           </dl>
         </div>
       </section>
+      {pilote && <Reglages l={l} superAdmin={user.superAdmin} />}
     </div>
   );
 }

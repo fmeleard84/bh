@@ -37,7 +37,8 @@ export async function sourcer(ligneCode: string) {
             if (!trancheDansBornes(r.tranche_effectif_salarie, ligne.effectif_min, ligne.effectif_max)) { ecarts.effectif++; continue; }
             if (await enregistrer(r, ligneCode)) {
               nouveaux++;
-              await enqueue("resoudre", { siren: r.siren }, r.siren);
+              // L'enrichissement consomme des crédits de recherche : seulement si la ligne l'autorise.
+              if (ligne.enrichissement_actif) await enqueue("resoudre", { siren: r.siren }, r.siren);
             }
             run.ecrits++;
           }

@@ -10,6 +10,7 @@ import { trouverContacts } from "../src/server/flux/f4-contacts";
 import { sequencer } from "../src/server/flux/f6-sequencer";
 import { envoyerDus } from "../src/server/flux/envoi";
 import { relever } from "../src/server/flux/f7-reponses";
+import { rapportHebdo, seuils } from "../src/server/flux/f8-pilotage";
 import { queue } from "../src/server/queue";
 import { enqueue } from "../src/server/queue";
 
@@ -59,6 +60,11 @@ const PROCESSORS: Partial<Record<QueueName, { fn: Processor; concurrency: number
     fn: async (job) => {
       if (job.name === "envoi") return envoyerDus();
       if (job.name === "releve") return relever();
+      if (job.name === "seuils") return { alertes: await seuils() };
+      if (job.name === "f8-hebdo") {
+        const lignes = await sysSql()`select code from hub.lignes`;
+        return Promise.all(lignes.map((l) => rapportHebdo(l.code)));
+      }
       if (job.name === "f6-quotidien") {
         const lignes = await sysSql()`select code from hub.lignes where active`;
         for (const l of lignes) await enqueue("sequencer", { ligne: l.code }, l.code);
@@ -108,6 +114,8 @@ const workers = QUEUES.flatMap((name) => {
 // Planification idempotente : redémarrer le worker ne duplique rien.
 await queue("pilotage").upsertJobScheduler("envoi", { every: 120_000 }, { name: "envoi" });
 await queue("pilotage").upsertJobScheduler("releve", { every: 300_000 }, { name: "releve" });
+await queue("pilotage").upsertJobScheduler("seuils", { every: 3_600_000 }, { name: "seuils" });
+await queue("pilotage").upsertJobScheduler("f8-hebdo", { pattern: "0 7 * * 1", tz: "Europe/Paris" }, { name: "f8-hebdo" });
 await queue("pilotage").upsertJobScheduler("f6-quotidien", { pattern: "0 8 * * 1-5", tz: "Europe/Paris" }, { name: "f6-quotidien" });
 
 // Battement de cœur lu par /api/health : un worker muet se voit en moins de 2 minutes.

@@ -14,14 +14,13 @@ import { evenement } from "./runs";
  * Garde-fous côté code : un critère ou un constat qui cite un fait inexistant
  * est retiré ; la classe décide de l'écart et du re-routage, pas le modèle.
  */
-const CLASSES = ["agent", "courtier", "importateur", "distributeur", "caviste", "producteur", "autre"] as const;
 const MOTS_VIN = /\b(vin|vins|vigne|vignoble|vigneron|vignerons|cave|caves|wine|wines|cru|chateau|domaine|domaines|oeno\w*|bouteille|spirits|spiritueux|champagne|terroir|boissons?)\b/;
 
 /** « … clientèle professionnelle [2, 3]. » → « … clientèle professionnelle. » */
 const sansRenvois = (t: string) => t.replace(/\s*\[\d+(?:\s*,\s*\d+)*\]/g, "").trim();
 
 interface Sortie {
-  classe_activite: (typeof CLASSES)[number];
+  classe_activite: string;
   criteres: { vrai: boolean; faits: number[] }[];
   constats: { texte: string; fait: number }[];
   raisons: string[];
@@ -34,6 +33,10 @@ export async function scorer(siren: string, ligneCode: string) {
   const signaux = await sql`select id, type, valeur, valeur_num, preuve_url, extrait from hub.signaux where siren = ${siren} order by id`;
   const contacts = await sql`select * from hub.contacts where siren = ${siren} and role_cible and not opt_out`;
   const grille = l.grille_signal as { critere: string; points: number }[];
+  // Classes : celles de toutes les lignes (définitions dans les fiches), pour pouvoir re-router.
+  const definitions: Record<string, string> = {};
+  for (const x of await sql`select classes from hub.lignes`) Object.assign(definitions, x.classes);
+  const classes = [...Object.keys(definitions), "autre"];
 
   // ─── Fit : règles fixes, lisibles par un humain ─────────────────────────
   const fit = { cible: 0, nom: 0, site: 0, dirigeant: 0, joignable: 0 };
@@ -53,7 +56,10 @@ export async function scorer(siren: string, ligneCode: string) {
     const r = await json<Sortie>({
       systeme: await prompt("qualificateur"),
       utilisateur: [
-        `Ligne : ${l.nom}. Classes retenues : ${l.classes_retenues.join(", ")}.`,
+        `Ligne : ${l.nom}. Classes retenues par cette ligne : ${l.classes_retenues.join(", ")}.`,
+        "Classes possibles :",
+        ...Object.entries(definitions).map(([k, v]) => `- ${k} : ${v}`),
+        "- autre : aucune de ces classes, ou faits insuffisants pour trancher.",
         `Société : ${e.nom}, ${e.commune}.`,
         "", "Faits :",
         ...[...numero].map(([n, s]) => `[${n}] ${s.type} : ${s.valeur}${s.valeur_num != null ? ` (${s.valeur_num})` : ""} — « ${s.extrait} »`),
@@ -63,7 +69,7 @@ export async function scorer(siren: string, ligneCode: string) {
       schema: {
         type: "object", additionalProperties: false, required: ["classe_activite", "criteres", "constats", "raisons"],
         properties: {
-          classe_activite: { type: "string", enum: CLASSES },
+          classe_activite: { type: "string", enum: classes },
           criteres: { type: "array", minItems: grille.length, maxItems: grille.length, items: {
             type: "object", additionalProperties: false, required: ["vrai", "faits"],
             properties: { vrai: { type: "boolean" }, faits: { type: "array", maxItems: 6, items: { type: "integer" } } } } },

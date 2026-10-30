@@ -206,3 +206,12 @@ describe("reconnaissance des profils LinkedIn", async () => {
     expect(profilCorrespond({ url: "https://fr.linkedin.com/in/lm2", titre: "Lucien Martinez - Ingénieur | LinkedIn", extrait: "Lille, Hauts-de-France" }, ei)).toBe(false);
   });
 });
+
+describe("réglages de ligne", async () => {
+  const { lireGrille, lireClasses } = await import("../src/server/reglages");
+  it("lit la grille et les classes", () => {
+    expect(lireGrille("30 | vend à des cavistes\n+15 | au moins 5 domaines")).toEqual([{ points: 30, critere: "vend à des cavistes" }, { points: 15, critere: "au moins 5 domaines" }]);
+    expect(lireClasses("Agent : vend à la commission\ncaviste: boutique")).toEqual({ agent: "vend à la commission", caviste: "boutique" });
+    expect(() => lireGrille("trente points pour les cavistes")).toThrow(/illisible/);
+  });
+});
