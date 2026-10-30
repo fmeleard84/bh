@@ -6,6 +6,8 @@ import { sysSql } from "../src/server/db";
  *   npx tsx scripts/lancer.ts sourcer <ligne>
  *   npx tsx scripts/lancer.ts resoudre <siren>            (forcé)
  *   npx tsx scripts/lancer.ts resoudre-ligne <ligne>      (sociétés jamais vérifiées)
+ *   npx tsx scripts/lancer.ts reverifier-ligne <ligne>    (toutes, forcé : après un changement des règles de preuve)
+ *   npx tsx scripts/lancer.ts vider <file>                (retire les travaux en attente)
  *   npx tsx scripts/lancer.ts extraire-ligne <ligne>      (sites prouvés pas encore lus)
  *   npx tsx scripts/lancer.ts scorer-ligne <ligne>        (comptes lus, à (re)noter)
  *   npx tsx scripts/lancer.ts contacts-ligne <ligne>      (personnes : emails vérifiés, LinkedIn)
@@ -22,6 +24,12 @@ if (flux === "sourcer") {
                               where c.ligne_code = ${cible} and e.site_verifie_le is null`;
   for (const r of rows) await enqueue("resoudre", { siren: r.siren }, r.siren);
   console.log(`${rows.length} sociétés en file`);
+} else if (flux === "reverifier-ligne") {
+  const rows = await sysSql()`select siren from hub.ciblages where ligne_code = ${cible}`;
+  for (const r of rows) await enqueue("resoudre", { siren: r.siren, forcer: true }, `${r.siren}:force`);
+  console.log(`${rows.length} sociétés en file`);
+} else if (flux === "vider" && QUEUES.includes(cible as QueueName)) {
+  await queue(cible as QueueName).drain(true);
 } else if (flux === "extraire-ligne") {
   const rows = await sysSql()`select c.siren from hub.ciblages c join hub.entreprises e on e.siren = c.siren
                               where c.ligne_code = ${cible} and e.site_verifie and c.statut = 'source'`;

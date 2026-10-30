@@ -101,8 +101,56 @@ export interface ResultatRecherche {
   extrait: string;
 }
 
-/** Recherche web par SearXNG, sérialisée et espacée (service partagé). */
-export function rechercher(q: string): Promise<ResultatRecherche[]> {
+/**
+ * Recherche web. Serper (résultats Google, service cloud validé le 2026-10-30)
+ * quand une clé est configurée et que le plafond du mois n'est pas atteint ;
+ * sinon SearXNG local, sérialisé et espacé (service partagé avec la Rédaction).
+ */
+export async function rechercher(q: string): Promise<ResultatRecherche[]> {
+  if (process.env.SERPER_API_KEY && (await reserverSerper())) {
+    try {
+      return await rechercherSerper(q);
+    } catch {
+      /* Serper indisponible : repli local */
+    }
+  }
+  return rechercherSearxng(q);
+}
+
+// Compteur mensuel partagé par tous les processus (Redis) : le plafond protège le budget.
+async function reserverSerper(): Promise<boolean> {
+  const { redis } = await import("../queue");
+  const cle = `bh:serper:${new Date().toISOString().slice(0, 7)}`;
+  const n = await redis().incr(cle);
+  if (n === 1) await redis().expire(cle, 40 * 86400);
+  if (n > Number(process.env.SERPER_MAX_MOIS ?? 2400)) {
+    await redis().decr(cle);
+    return false;
+  }
+  return true;
+}
+
+export async function consommationSerper(): Promise<number> {
+  const { redis } = await import("../queue");
+  return Number((await redis().get(`bh:serper:${new Date().toISOString().slice(0, 7)}`)) ?? 0);
+}
+
+async function rechercherSerper(q: string): Promise<ResultatRecherche[]> {
+  const res = await fetch("https://google.serper.dev/search", {
+    method: "POST",
+    headers: { "X-API-KEY": process.env.SERPER_API_KEY!, "content-type": "application/json" },
+    body: JSON.stringify({ q, gl: "fr", hl: "fr", num: 10 }),
+    signal: AbortSignal.timeout(20_000),
+  });
+  if (!res.ok) throw new Error(`serper ${res.status}`);
+  const d = (await res.json()) as { organic?: { link: string; title: string; snippet?: string }[] };
+  return (d.organic ?? [])
+    .filter((r) => !/^https?:\/\/(www\.)?google\.[a-z.]+\/goto/.test(r.link))
+    .map((r) => ({ url: r.link, titre: r.title, extrait: r.snippet ?? "" }));
+}
+
+/** SearXNG local, sérialisé et espacé. */
+function rechercherSearxng(q: string): Promise<ResultatRecherche[]> {
   const tache = file.then(async () => {
     const attente = derniereRecherche + ECART_RECHERCHE_MS - Date.now();
     if (attente > 0) await new Promise((r) => setTimeout(r, attente));

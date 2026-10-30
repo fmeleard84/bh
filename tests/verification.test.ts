@@ -1,34 +1,48 @@
 import { describe, expect, it } from "vitest";
-import { communeNormalisee, domainesCandidats, estAnnuaire, liensUtiles, prouver, telephone } from "../src/server/flux/verification";
+import { communeNormalisee, domainePertinent, domainesCandidats, estAnnuaire, liensUtiles, prouver, telephone, type Identite } from "../src/server/flux/verification";
 import { trancheDansBornes, nomPropre, premierPrenom } from "../src/server/texte";
 
 describe("preuve d'identité d'un site", () => {
-  it("accepte le SIREN, même espacé ou dans un SIRET", () => {
-    expect(prouver("RCS Aix 812 985 331", "u", "812985331", null, []).verifie).toBe(true);
-    expect(prouver("SIRET : 812.985.331.00024", "u", "812985331", null, []).verifie).toBe(true);
+  const id = (o: Partial<Identite>): Identite => ({ siren: "000000000", commune: null, dirigeants: [], ...o });
+
+  it("accepte le SIREN, même espacé ou dans un SIRET, quel que soit le domaine", () => {
+    expect(prouver("RCS Aix 812 985 331", "https://x.fr/", id({ siren: "812985331" })).verifie).toBe(true);
+    expect(prouver("SIRET : 812.985.331.00024", "https://x.fr/", id({ siren: "812985331" })).verifie).toBe(true);
   });
 
-  it("accepte commune + dirigeant, refuse l'un sans l'autre", () => {
-    const t = "Nicolas Beausset, agent à Aix-en-Provence";
-    expect(prouver(t, "u", "000000000", "AIX-EN-PROVENCE", ["Beausset"]).verifie).toBe(true);
-    expect(prouver("Agence à Aix-en-Provence", "u", "000000000", "AIX-EN-PROVENCE", ["Beausset"]).verifie).toBe(false);
-    expect(prouver("Nicolas Beausset, Lyon", "u", "000000000", "AIX-EN-PROVENCE", ["Beausset"]).verifie).toBe(false);
+  it("vrais positifs du pilote", () => {
+    const trinh = id({ commune: "FONTVIEILLE", raisonSociale: "AGENCE JULIEN TRINH", dirigeants: [{ prenom: "Julien", nom: "Trinh" }] });
+    expect(prouver("L'agence Vin, c'est Claire et Julien Trinh, à Fontvieille", "https://agence.vin/", trinh).verifie).toBe(true);
+    const reves = id({ commune: "AVIGNON", raisonSociale: "REVES DE VINS", dirigeants: [{ prenom: "Herve", nom: "Rault" }] });
+    expect(prouver("Hervé Rault, Avignon", "https://revesdevins.com/", reves).verifie).toBe(true);
+    const vinisim = id({ commune: "ARLES", raisonSociale: "VINISIM", dirigeants: [{ prenom: "Simon", nom: "Chiuppi" }] });
+    expect(prouver("Vinisim, agence fondée par Simon CHIUPPI", "https://www.vinisim.fr/", vinisim).verifie).toBe(true);
   });
 
-  it("accepte raison sociale + dirigeant, sauf pour une entreprise individuelle", () => {
-    const t = "Winemakers Rock was founded by James Wood";
-    expect(prouver(t, "u", "000000000", "SARRIANS", ["Wood"], "WINEMAKERS ROCK").verifie).toBe(true);
-    expect(prouver(t, "u", "000000000", "SARRIANS", ["Wood"]).verifie).toBe(false);
-    expect(prouver("Winemakers Rock, Londres", "u", "000000000", "SARRIANS", ["Wood"], "WINEMAKERS ROCK").verifie).toBe(false);
-  });
-
-  it("ne confond pas un nom avec un fragment de mot", () => {
-    expect(prouver("Marseille, la maison Martineau", "u", "000000000", "MARSEILLE 8", ["Martin"]).verifie).toBe(false);
+  it("faux positifs de l'audit du 2026-10-30", () => {
+    // Nom de famille courant + même ville, sans le prénom.
+    const martinez = id({ commune: "PERPIGNAN", dirigeants: [{ prenom: "Lucien", nom: "Martinez" }] });
+    expect(prouver("Garage Martinez, Perpignan", "https://www.garage-martinez-perpignan.fr/", martinez).verifie).toBe(false);
+    // Nom de famille qui est aussi un mot, sur un site sans rapport.
+    const paris = id({ commune: "TOULOUSE", dirigeants: [{ prenom: "Tom", nom: "Paris" }] });
+    expect(prouver("Concert Tom Paris à Toulouse", "https://kelbillet.com/", paris).verifie).toBe(false);
+    // Site d'une mairie qui cite une élue homonyme.
+    const lasserre = id({ commune: "MARIGNAC-LASPEYRES", dirigeants: [{ prenom: "Nathalie", nom: "Lasserre" }] });
+    expect(prouver("Conseil municipal : Nathalie Lasserre. Marignac-Laspeyres", "https://marignac-laspeyres.fr/", lasserre).verifie).toBe(false);
+    // Raison sociale identique au nom du dirigeant : ne prouve rien.
+    const thierry = id({ commune: "PERPIGNAN", raisonSociale: "THIERRY", dirigeants: [{ prenom: "Paul", nom: "Thierry" }] });
+    expect(prouver("Paul Thierry, Thierry conseil", "https://thierry.fr/", thierry).verifie).toBe(false);
   });
 
   it("ramène un arrondissement à sa commune", () => {
     expect(communeNormalisee("MARSEILLE 8")).toBe("marseille");
     expect(communeNormalisee("AIX-EN-PROVENCE")).toBe("aix en provence");
+  });
+
+  it("juge la pertinence d'un domaine", () => {
+    const i = id({ raisonSociale: "WINEMAKERS ROCK", dirigeants: [{ prenom: "James", nom: "Wood" }] });
+    expect(domainePertinent("https://winemakersrock.com/", i)).toBe(true);
+    expect(domainePertinent("https://www.ouigo.com/", i)).toBe(false);
   });
 });
 

@@ -1,4 +1,4 @@
-import { normaliser, nomUtile } from "../texte";
+import { normaliser, nomUtile, sansAccents } from "../texte";
 
 /**
  * Règles pures de la résolution de site (F2), séparées pour être testées.
@@ -54,21 +54,55 @@ export interface Preuve {
 
 /**
  * Un texte de page prouve-t-il que le site est celui de la société ?
- *  - le SIREN (ou un SIRET qui le contient) ;
- *  - ou la commune ET le nom d'un dirigeant ;
- *  - ou la raison sociale exacte ET le nom d'un dirigeant. `raisonSociale` est
- *    omise pour une entreprise individuelle : sa raison sociale est le nom du dirigeant.
+ *  - le SIREN (ou un SIRET qui le contient) suffit ;
+ *  - sinon il faut les TROIS :
+ *    1. le prénom ET le nom d'un dirigeant, côte à côte (un nom de famille seul
+ *       — Paris, Bar, Pages, Martinez — se retrouve partout) ;
+ *    2. la commune, ou la raison sociale quand elle n'est pas le nom du dirigeant ;
+ *    3. un nom de domaine qui porte un mot de la raison sociale, d'une enseigne
+ *       ou du dirigeant (ouigo.com n'est le site d'aucun agent).
+ * Audit du 2026-10-30 : la règle « commune + nom de famille » donnait une
+ * vingtaine de faux positifs sur 37, presque tous des entreprises individuelles.
  */
-export function prouver(texte: string, url: string, siren: string, commune: string | null, dirigeants: string[], raisonSociale?: string): Preuve {
-  const chiffres = texte.replace(/[\s.\u00a0\u202f-]/g, "");
-  if (chiffres.includes(siren)) return { verifie: true, preuve: `SIREN ${siren} présent sur ${url}` };
+export interface Identite {
+  siren: string;
+  commune: string | null;
+  dirigeants: { prenom: string | null; nom: string }[];
+  /** Raison sociale ; omise pour une entreprise individuelle (c'est le nom du dirigeant). */
+  raisonSociale?: string;
+  enseignes?: string[];
+}
+
+const MOTS_FAIBLES = new Set(["vins", "wine", "wines", "france", "groupe", "diffusion", "distribution", "international", "services", "conseil", "commerce", "provence"]);
+
+/** Mots distinctifs (4 lettres et plus) qui peuvent apparaître dans un nom de domaine. */
+function motsDistinctifs(...noms: (string | null | undefined)[]): string[] {
+  return noms.flatMap((x) => (x ? nomUtile(x).split(" ") : [])).filter((m) => m.length >= 4 && !MOTS_FAIBLES.has(m));
+}
+
+export function domainePertinent(url: string, id: Identite): boolean {
+  let host: string;
+  try { host = new URL(url).host.replace(/^www\./, "").toLowerCase(); } catch { return false; }
+  const compact = sansAccents(host.split(".").slice(0, -1).join("")).replace(/[^a-z0-9]/g, "");
+  const mots = motsDistinctifs(id.raisonSociale, ...(id.enseignes ?? []), ...id.dirigeants.map((d) => d.nom));
+  return mots.some((m) => compact.includes(m.replace(/\s/g, "")));
+}
+
+export function prouver(texte: string, url: string, id: Identite): Preuve {
+  const chiffres = texte.replace(/[\s.  -]/g, "");
+  if (chiffres.includes(id.siren)) return { verifie: true, preuve: `SIREN ${id.siren} présent sur ${url}` };
+  if (!domainePertinent(url, id)) return { verifie: false, preuve: null };
   const n = ` ${normaliser(texte)} `;
-  const d = dirigeants.map(normaliser).find((nom) => nom.length >= 3 && n.includes(` ${nom} `));
+  const d = id.dirigeants
+    .filter((x) => x.prenom && normaliser(x.nom).length >= 2)
+    .map((x) => [normaliser(`${x.prenom} ${x.nom}`), normaliser(`${x.nom} ${x.prenom}`)])
+    .find(([a, b]) => n.includes(` ${a} `) || n.includes(` ${b} `))?.[0];
   if (!d) return { verifie: false, preuve: null };
-  const c = communeNormalisee(commune);
+  const c = communeNormalisee(id.commune);
   if (c && n.includes(` ${c} `)) return { verifie: true, preuve: `commune « ${c} » et dirigeant « ${d} » présents sur ${url}` };
-  const r = raisonSociale ? nomUtile(raisonSociale) : "";
-  if (r.replace(/\s/g, "").length >= 6 && n.includes(` ${r} `)) return { verifie: true, preuve: `raison sociale « ${r} » et dirigeant « ${d} » présents sur ${url}` };
+  const r = id.raisonSociale ? nomUtile(id.raisonSociale) : "";
+  const sansDirigeant = id.dirigeants.reduce((acc, x) => acc.replace(normaliser(x.nom), ""), r).replace(/\s/g, "");
+  if (sansDirigeant.length >= 6 && n.includes(` ${r} `)) return { verifie: true, preuve: `raison sociale « ${r} » et dirigeant « ${d} » présents sur ${url}` };
   return { verifie: false, preuve: null };
 }
 
