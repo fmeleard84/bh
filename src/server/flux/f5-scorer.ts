@@ -66,14 +66,14 @@ export async function scorer(siren: string, ligneCode: string) {
           classe_activite: { type: "string", enum: CLASSES },
           criteres: { type: "array", minItems: grille.length, maxItems: grille.length, items: {
             type: "object", additionalProperties: false, required: ["vrai", "faits"],
-            properties: { vrai: { type: "boolean" }, faits: { type: "array", items: { type: "integer" } } } } },
+            properties: { vrai: { type: "boolean" }, faits: { type: "array", maxItems: 6, items: { type: "integer" } } } } },
           constats: { type: "array", maxItems: 3, items: {
             type: "object", additionalProperties: false, required: ["texte", "fait"],
-            properties: { texte: { type: "string" }, fait: { type: "integer" } } } },
-          raisons: { type: "array", maxItems: 3, items: { type: "string" } },
+            properties: { texte: { type: "string", maxLength: 300 }, fait: { type: "integer" } } } },
+          raisons: { type: "array", maxItems: 3, items: { type: "string", maxLength: 300 } },
         },
       },
-      maxTokens: 1500,
+      maxTokens: 2500,
     });
     sortie = r.data;
     sortie.raisons = sortie.raisons.map(sansRenvois);

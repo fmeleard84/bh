@@ -37,7 +37,8 @@ export async function json<T>(opts: { systeme: string; utilisateur: string; sche
         headers: { "content-type": "application/json" },
         body: JSON.stringify({
           model: MODELE,
-          temperature: 0,
+          // Deuxième essai légèrement aléatoire : à température 0, il reproduirait le même échec.
+          temperature: essai === 0 ? 0 : 0.4,
           max_tokens: opts.maxTokens ?? 2000,
           messages: [{ role: "system", content: opts.systeme }, { role: "user", content: opts.utilisateur }],
           response_format: { type: "json_schema", json_schema: { name: "sortie", strict: true, schema: opts.schema } },

@@ -30,10 +30,13 @@ const SCHEMA = {
       items: {
         type: "object",
         additionalProperties: false,
-        required: ["prenom", "nom", "role", "email", "telephone", "preuve_url"],
+        required: ["preuve_url", "prenom", "nom", "role", "email", "telephone"],
+        // L'ordre des propriétés est l'ordre de génération : la preuve d'abord. Placée en dernier,
+        // le modèle qui voulait l'omettre bouclait sur des espaces jusqu'à la limite de tokens.
         properties: {
-          prenom: { type: ["string", "null"] }, nom: { type: "string" }, role: { type: ["string", "null"] },
-          email: { type: ["string", "null"] }, telephone: { type: ["string", "null"] }, preuve_url: { type: "string" },
+          preuve_url: { type: "string", maxLength: 300 },
+          prenom: { type: ["string", "null"], maxLength: 40 }, nom: { type: "string", maxLength: 60 }, role: { type: ["string", "null"], maxLength: 120 },
+          email: { type: ["string", "null"], maxLength: 100 }, telephone: { type: ["string", "null"], maxLength: 30 },
         },
       },
     },
@@ -43,10 +46,12 @@ const SCHEMA = {
       items: {
         type: "object",
         additionalProperties: false,
-        required: ["type", "valeur", "valeur_num", "preuve_url", "extrait"],
+        required: ["type", "preuve_url", "extrait", "valeur", "valeur_num"],
+        // La citation avant la valeur : le fait se formule à partir de ce qui est écrit.
         properties: {
-          type: { type: "string", enum: TYPES }, valeur: { type: "string" }, valeur_num: { type: ["number", "null"] },
-          preuve_url: { type: "string" }, extrait: { type: "string" },
+          type: { type: "string", enum: TYPES },
+          preuve_url: { type: "string", maxLength: 300 }, extrait: { type: "string", maxLength: 300 },
+          valeur: { type: "string", maxLength: 200 }, valeur_num: { type: ["number", "null"] },
         },
       },
     },
@@ -119,7 +124,7 @@ export async function extraire(siren: string, ligneCode: string) {
       ...pages.map((p) => `\n=== PAGE ${p.url} ===\n${p.texte.slice(0, CARACTERES_PAR_PAGE)}`),
     ].join("\n"),
     schema: SCHEMA,
-    maxTokens: 4000,
+    maxTokens: 6000,
   });
 
   const maintenant = new Date();
