@@ -43,9 +43,13 @@ export async function chiffresLigne(ligne: string, debut: Date, fin: Date) {
   const [c] = await sql`
     select
       (select count(*) from hub.evenements where ligne_code = ${ligne} and type = 'source' and cree_le between ${debut} and ${fin})::int as sources,
-      (select count(*) from hub.evenements v join hub.ciblages g on g.siren = v.siren and g.ligne_code = ${ligne}
+      -- Sociétés distinctes, dans leur état actuel : une revérification ou une requalification ne compte pas deux fois.
+      (select count(distinct v.siren) from hub.evenements v join hub.ciblages g on g.siren = v.siren and g.ligne_code = ${ligne}
+         join hub.entreprises e on e.siren = v.siren and e.site_verifie
          where v.type = 'site_verifie' and v.cree_le between ${debut} and ${fin})::int as sites_prouves,
-      (select count(*) from hub.evenements where ligne_code = ${ligne} and type = 'score' and donnees->>'statut' = 'qualifie' and cree_le between ${debut} and ${fin})::int as qualifies,
+      (select count(distinct v.siren) from hub.evenements v join hub.ciblages g on g.siren = v.siren and g.ligne_code = v.ligne_code
+         and g.statut in ('qualifie', 'en_sequence', 'repondu', 'opportunite', 'client')
+         where v.ligne_code = ${ligne} and v.type = 'score' and v.donnees->>'statut' = 'qualifie' and v.cree_le between ${debut} and ${fin})::int as qualifies,
       (select count(*) from hub.sequences where ligne_code = ${ligne} and debut_le between ${debut} and ${fin})::int as sequences_validees,
       (select count(*) from hub.echanges where ligne_code = ${ligne} and sens = 'sortant' and canal = 'email' and envoye_le between ${debut} and ${fin})::int as emails_envoyes,
       (select count(*) from hub.taches where ligne_code = ${ligne} and fait_le between ${debut} and ${fin} and resultat = 'fait')::int as taches_faites,
@@ -64,7 +68,7 @@ export async function rapportHebdo(ligne: string, maintenant = new Date()) {
   const [l] = await sql`select nom from hub.lignes where code = ${ligne}`;
   const fin = maintenant;
   const debut = new Date(fin.getTime() - 7 * 86_400_000);
-  const chiffres: Record<string, any> = { ...(await chiffresLigne(ligne, debut, fin)), credits_recherche_mois: await consommationSerper() };
+  const chiffres: Record<string, any> = { ...(await chiffresLigne(ligne, debut, fin)), credits_recherche_consommes_ce_mois: await consommationSerper(), credits_recherche_plafond_mois: Number(process.env.SERPER_MAX_MOIS ?? 2400) };
   const alertes: string[] = [];
   if (chiffres.emails_envoyes_cumul >= 300 && chiffres.reponses_cumul / chiffres.emails_envoyes_cumul < 0.01) {
     alertes.push(`Taux de réponse sous 1 % après ${chiffres.emails_envoyes_cumul} envois : revoir le gabarit avant de continuer.`);
@@ -75,7 +79,7 @@ export async function rapportHebdo(ligne: string, maintenant = new Date()) {
   let resume = resumeSansIa(l.nom, chiffres);
   try {
     const { data } = await json<{ resume: string }>({
-      systeme: "Tu rédiges le point hebdomadaire d'une ligne de prospection, en 6 à 10 lignes, en français, sobre. Tu n'utilises QUE les chiffres fournis, sans en calculer de nouveaux sauf un taux de réponse si les envois sont non nuls. Tu termines par la priorité de la semaine qui vient, déduite des chiffres (où se trouve le goulot).",
+      systeme: "Tu rédiges le point hebdomadaire d'une ligne de prospection, en 6 à 10 lignes, en français, sobre. Tu n'utilises QUE les chiffres fournis, sans en calculer de nouveaux, sauf un taux de réponse et seulement si des emails ont été envoyés (sinon n'en parle pas). Les crédits de recherche indiqués sont consommés, pas restants. Tu termines par la priorité de la semaine qui vient, déduite des chiffres (où se trouve le goulot).",
       utilisateur: `Ligne : ${l.nom}\nChiffres (7 derniers jours, statuts = état actuel) : ${brut}\nAlertes : ${alertes.join(" ") || "aucune"}`,
       schema: { type: "object", additionalProperties: false, required: ["resume"], properties: { resume: { type: "string", maxLength: 1200 } } },
       maxTokens: 700,

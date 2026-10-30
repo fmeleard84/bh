@@ -66,7 +66,8 @@ const PROCESSORS: Partial<Record<QueueName, { fn: Processor; concurrency: number
         return Promise.all(lignes.map((l) => rapportHebdo(l.code)));
       }
       if (job.name === "f6-quotidien") {
-        const lignes = await sysSql()`select code from hub.lignes where active`;
+        // Préparer des brouillons n'envoie rien : F6 tourne pour toute ligne qui s'enrichit ou qui envoie.
+        const lignes = await sysSql()`select code from hub.lignes where active or enrichissement_actif`;
         for (const l of lignes) await enqueue("sequencer", { ligne: l.code }, l.code);
         return { lignes: lignes.length };
       }
