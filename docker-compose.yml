@@ -1,0 +1,84 @@
+# BH — Business Hub (bh.vaya.rip)
+# Même patron que la Rédaction (/opt/blog) : web + worker + Postgres + Redis.
+# Routage par labels uniquement : aucun fichier de /opt/traefik n'est modifié.
+# Mémoire plafonnée par conteneur : vaya héberge beaucoup d'autres services.
+name: bh
+
+services:
+  db:
+    image: pgvector/pgvector:pg16
+    restart: unless-stopped
+    command: ["postgres", "-c", "shared_buffers=256MB", "-c", "max_connections=60"]
+    environment:
+      POSTGRES_USER: bh
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
+      POSTGRES_DB: bh
+    volumes:
+      - ./data/postgres:/var/lib/postgresql/data
+    ports:
+      - "127.0.0.1:5490:5432"
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U bh"]
+      interval: 10s
+    mem_limit: 1g
+    networks: [internal]
+
+  redis:
+    image: redis:7-alpine
+    restart: unless-stopped
+    command: ["redis-server", "--appendonly", "yes", "--maxmemory-policy", "noeviction", "--maxmemory", "200mb"]
+    volumes:
+      - ./data/redis:/data
+    ports:
+      - "127.0.0.1:6393:6379"
+    mem_limit: 256m
+    networks: [internal]
+
+  web:
+    build: .
+    restart: unless-stopped
+    command: ["node", "server.js"]
+    env_file: .env
+    environment: &runtime_env
+      NODE_ENV: production
+      PORT: "3300"
+      HOSTNAME: 0.0.0.0
+      DATABASE_URL: postgres://bh:${POSTGRES_PASSWORD}@db:5432/bh
+      APP_DATABASE_URL: postgres://bh_app:${APP_DB_PASSWORD}@db:5432/bh
+      REDIS_URL: redis://redis:6379
+      # Services locaux réutilisés (jamais de cloud sans validation).
+      TROOPER_LLM_URL: http://172.18.0.1:17138/v1
+      TROOPER_EMBED_URL: http://172.18.0.1:17139/v1
+      SEARXNG_URL: http://searxng:8080
+      CRAWL4AI_URL: http://crawl4ai:11235
+    ports:
+      - "127.0.0.1:3300:3300"
+    depends_on: [db, redis]
+    mem_limit: 512m
+    networks: [internal, traefik_proxy]
+    labels:
+      - traefik.enable=true
+      - traefik.docker.network=traefik_proxy
+      - traefik.http.routers.bh.rule=Host(`bh.vaya.rip`)
+      - traefik.http.routers.bh.entrypoints=websecure
+      - traefik.http.routers.bh.tls.certresolver=myresolver
+      - traefik.http.services.bh.loadbalancer.server.port=3300
+      - traefik.http.routers.bh-http.rule=Host(`bh.vaya.rip`)
+      - traefik.http.routers.bh-http.entrypoints=web
+      - traefik.http.routers.bh-http.middlewares=bh-https
+      - traefik.http.middlewares.bh-https.redirectscheme.scheme=https
+
+  worker:
+    build: .
+    restart: unless-stopped
+    command: ["node_modules/.bin/tsx", "worker/index.ts"]
+    env_file: .env
+    environment: *runtime_env
+    depends_on: [db, redis]
+    mem_limit: 768m
+    networks: [internal, traefik_proxy]
+
+networks:
+  internal:
+  traefik_proxy:
+    external: true
