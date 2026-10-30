@@ -66,3 +66,17 @@ describe("registre", () => {
     expect(nomPropre("DUPONT-MOREAU")).toBe("Dupont-Moreau");
   });
 });
+
+describe("garde-fous de l'Extracteur", async () => {
+  const { citationPresente, nombreJustifie } = await import("../src/server/flux/f3-extraire");
+  it("ne garde une citation que si elle est dans la page", () => {
+    expect(citationPresente("L’agence Vin, représente de grands vignerons", "Bienvenue. L'agence Vin, représente de grands vignerons !")).toBe(true);
+    expect(citationPresente("représente 40 domaines", "représente de grands vignerons")).toBe(false);
+  });
+  it("ne garde un nombre que s'il est justifié", () => {
+    expect(nombreJustifie("equipe", 2, "La sélection : 6 vins")).toBe(false);
+    expect(nombreJustifie("nb_domaines", 38, "nous représentons 38 producteurs")).toBe(true);
+    expect(nombreJustifie("nb_domaines", 3, "Domaine A, Domaine B, Domaine C")).toBe(true);
+    expect(nombreJustifie("equipe", 12, "112 clients")).toBe(false);
+  });
+});
