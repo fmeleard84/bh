@@ -1,6 +1,7 @@
 import { sysSql } from "../db";
 import { json, prompt } from "../ia";
 import { controler, type Controle } from "./gabarit";
+import { deNom, prenomUsuel } from "../prenoms";
 import { Run, evenement } from "./runs";
 
 /**
@@ -39,6 +40,23 @@ interface ContactLigne {
   linkedin_url: string | null;
   telephone_mobile: string | null;
   telephone_fixe: string | null;
+}
+
+export function salutation(gabarit: Gabarit, c: { prenom: string | null; nom: string }): string {
+  const prenom = prenomUsuel(c.prenom);
+  if (gabarit === "generique") return `Bonjour,\n\nÀ l'attention ${deNom([prenom, c.nom].filter(Boolean).join(" "))} :`;
+  return prenom ? `Bonjour ${prenom},` : "Bonjour,";
+}
+
+/** Retire une salutation que le modèle aurait écrite malgré la consigne. */
+export function sansSalutation(corps: string): string {
+  const motifs = [/^\s*(bonjour|madame|monsieur|cher|ch[eè]re)\b[^\n,:]*[,:]?\s*/i, /^\s*(?:à\s+)?l'attention\s+(?:de\s+|d')[^\n:]*:\s*/i];
+  let t = corps;
+  for (let avant = ""; avant !== t; ) {
+    avant = t;
+    for (const m of motifs) t = t.replace(m, "");
+  }
+  return t.trim();
 }
 
 /** Canal retenu pour un contact, d'après sa fiche. */
@@ -114,10 +132,11 @@ async function rediger(l: Record<string, any>, compte: Record<string, any>, cont
       `Marque : ${l.marque} (société ${l.societe_expeditrice}). Signataire : ${g.signature ?? "l'équipe"}.`,
       `Voix : ${g.voix ?? "directe, chaleureuse, vouvoiement"}.`,
       `Offre d'entrée : ${l.offre_entree ?? "un échange de 20 minutes"}.`,
-      `Destinataire : ${contact.prenom ?? ""} ${contact.nom}, ${contact.qualite ?? "dirigeant"} de ${compte.entreprise}.`,
+      `Destinataire : ${prenomUsuel(contact.prenom) ?? ""} ${contact.nom}, ${contact.qualite ?? "dirigeant"} de ${compte.entreprise}.`,
       gabarit === "generique"
-        ? `L'adresse est générique (boîte d'accueil). Chaque message commence par « Bonjour, » puis, à la ligne, « À l'attention de ${contact.prenom ?? ""} ${contact.nom} : » (avec élision : « d'Olivier », pas « de Olivier »). N'utilise pas le prénom seul ailleurs.`
-        : `Chaque message commence par « Bonjour ${contact.prenom ?? ""}, ».`,
+        ? "L'adresse est générique (boîte d'accueil) : n'appelle pas le destinataire par son prénom dans le texte."
+        : `Tu peux t'adresser à ${prenomUsuel(contact.prenom) ?? "lui"} par son prénom, avec parcimonie.`,
+      "N'écris AUCUNE salutation (ni « Bonjour », ni « À l'attention de ») : l'outil l'ajoute. Commence directement par la phrase qui dit qui écrit.",
       "Constats :",
       ...constats.map((c, i) => `${i + 1}. ${c}`),
       retour ? `\nTa version précédente ne respectait pas : ${retour}. Corrige ces points.` : "",
@@ -125,7 +144,9 @@ async function rediger(l: Record<string, any>, compte: Record<string, any>, cont
     schema: SCHEMA,
     maxTokens: 2500,
   });
-  const ctx = { prenom: gabarit === "generique" ? null : contact.prenom, constats, autres: `${l.offre_entree ?? ""} ${JSON.stringify(l.gabarit)}` };
+  // La salutation est écrite par le code, jamais par le modèle (le gabarit générique la massacrait).
+  for (const k of ["j0", "j7", "j14"] as const) data[k].corps = `${salutation(gabarit, contact as { prenom: string | null; nom: string })}\n\n${sansSalutation(data[k].corps)}`;
+  const ctx = { prenom: gabarit === "generique" ? null : prenomUsuel(contact.prenom), constats, autres: `${l.offre_entree ?? ""} ${JSON.stringify(l.gabarit)}` };
   const controles: Record<string, Controle> = {
     j0: controler("j0", data.j0, ctx),
     j7: controler("j7", data.j7, ctx),

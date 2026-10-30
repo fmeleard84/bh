@@ -1,7 +1,7 @@
 /** Outils de texte partagés par les flux : normalisation, formes juridiques, noms propres. */
 
 export function sansAccents(s: string): string {
-  return s.normalize("NFD").replace(/[̀-ͯ]/g, "");
+  return s.normalize("NFD").replace(/[\u0300-\u036f]/g, "");
 }
 
 /** Minuscules, sans accents, ponctuation réduite à des espaces. */

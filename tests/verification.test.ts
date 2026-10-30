@@ -171,3 +171,23 @@ describe("fenêtre d'envoi", async () => {
     expect(lireJeton(j.slice(0, -2) + "xx")).toBeNull();
   });
 });
+
+describe("salutation et prénoms", async () => {
+  const { salutation, sansSalutation } = await import("../src/server/flux/f6-sequencer");
+  const { prenomUsuel } = await import("../src/server/prenoms");
+  it("rétablit les accents usuels", () => {
+    expect(prenomUsuel("JEROME")).toBe("Jérôme");
+    expect(prenomUsuel("Herve")).toBe("Hervé");
+    expect(prenomUsuel("JEAN-REMY")).toBe("Jean-Rémy");
+    expect(prenomUsuel("Kaori")).toBe("Kaori");
+  });
+  it("salue correctement, élision comprise", () => {
+    expect(salutation("nominatif", { prenom: "Geraud", nom: "Chamboissier" })).toBe("Bonjour Géraud,");
+    expect(salutation("generique", { prenom: "Olivier", nom: "Grataloupt" })).toBe("Bonjour,\n\nÀ l'attention d'Olivier Grataloupt :");
+    expect(salutation("generique", { prenom: "Herve", nom: "Rault" })).toBe("Bonjour,\n\nÀ l'attention de Hervé Rault :");
+  });
+  it("retire la salutation écrite par le modèle", () => {
+    expect(sansSalutation("Bonjour, l'attention de Herve Rault : l'attention de Herve Rault : Je suis Vincent.")).toBe("Je suis Vincent.");
+    expect(sansSalutation("Bonjour Julien, j'écris au nom de Tonton Gégé.")).toBe("j'écris au nom de Tonton Gégé.");
+  });
+});
