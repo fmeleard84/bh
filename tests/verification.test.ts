@@ -121,3 +121,53 @@ describe("adresses masquées", async () => {
     expect(desobfusquer("Julien@Agence.vin")).toBe("julien@agence.vin");
   });
 });
+
+describe("contrôle de gabarit", async () => {
+  const { controler } = await import("../src/server/flux/gabarit");
+  const ctx = { prenom: "Julien", constats: ["Votre agence représente 16 domaines de 8 régions."], autres: "atelier visio 40 min, 10 agents" };
+  it("accepte un J0 conforme", () => {
+    const c = controler("j0", { objet: "vos 16 domaines", corps: "Bonjour Julien, votre agence représente 16 domaines de 8 régions. Seriez-vous ouvert à en parler ?" }, ctx);
+    expect(c.defauts).toEqual([]);
+  });
+  it("refuse un chiffre inventé, un faux « re: », un lien, deux questions", () => {
+    const c = controler("j0", { objet: "re: vos domaines", corps: "Bonjour Julien, vos 40 domaines et 25 cavistes ? Voir www.x.fr. Intéressé ?" }, ctx);
+    expect(c.defauts.join(" | ")).toMatch(/chiffre.*25/);
+    expect(c.defauts.join(" | ")).toMatch(/imite une réponse/);
+    expect(c.defauts.join(" | ")).toMatch(/lien/);
+    expect(c.defauts.join(" | ")).toMatch(/une question/);
+  });
+  it("refuse le tutoiement et les superlatifs", () => {
+    const c = controler("j7", { objet: "une idée", corps: "Bonjour Julien, ton agence est la meilleure !" }, ctx);
+    expect(c.defauts.join(" | ")).toMatch(/tutoiement/);
+    expect(c.defauts.join(" | ")).toMatch(/superlatif/);
+  });
+});
+
+describe("réponses entrantes", async () => {
+  const { estOpposition, sansCitation } = await import("../src/server/flux/f7-reponses");
+  it("détecte une opposition sans IA", () => {
+    expect(estOpposition("STOP")).toBe(true);
+    expect(estOpposition("Merci de ne plus me contacter.")).toBe(true);
+    expect(estOpposition("Désinscrivez-moi svp")).toBe(true);
+    expect(estOpposition("Oui, appelez-moi mardi. Je ne veux pas stopper la discussion.")).toBe(false);
+  });
+  it("retire la citation du message d'origine", () => {
+    expect(sansCitation("Oui volontiers.\n\nLe 30 oct. 2026 à 10:00, Vincent a écrit :\n> Bonjour")).toBe("Oui volontiers.");
+  });
+});
+
+describe("fenêtre d'envoi", async () => {
+  const { dansFenetre, prochaineFenetre, jetonDesinscription, lireJeton } = await import("../src/server/flux/envoi");
+  it("du lundi au vendredi, 8 h - 18 h à Paris", () => {
+    expect(dansFenetre(new Date("2026-11-02T09:00:00+01:00"))).toBe(true);  // lundi 9 h
+    expect(dansFenetre(new Date("2026-11-02T18:30:00+01:00"))).toBe(false); // lundi 18 h 30
+    expect(dansFenetre(new Date("2026-10-31T10:00:00+01:00"))).toBe(false); // samedi
+    expect(prochaineFenetre(new Date("2026-10-31T10:00:00+01:00")).toISOString()).toBe("2026-11-02T07:00:00.000Z"); // lundi 8 h
+  });
+  it("jeton de désinscription infalsifiable", () => {
+    process.env.SESSION_SECRET ??= "test";
+    const j = jetonDesinscription("3f1c-contact");
+    expect(lireJeton(j)).toBe("3f1c-contact");
+    expect(lireJeton(j.slice(0, -2) + "xx")).toBeNull();
+  });
+});

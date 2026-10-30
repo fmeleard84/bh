@@ -73,6 +73,9 @@ export function desobfusquer(email: string): string {
     .toLowerCase();
 }
 
+/** L'adresse a été lue sur une page du site prouvé (et non devinée). */
+const affichee = (source: string | null) => !!source && source.startsWith("http");
+
 function slug(s: string): string {
   return sansAccents(s).toLowerCase().replace(/[^a-z]/g, "");
 }
@@ -95,9 +98,12 @@ export async function trouverContacts(siren: string) {
   for (const c of contacts) {
     const r: Record<string, unknown> = { contact: `${c.prenom ?? ""} ${c.nom}`.trim() };
 
-    // (a)+(c) email affiché : on le vérifie s'il est nominatif.
-    if (c.email && c.email_statut === "inconnu") {
-      const s = await verifierEmail(c.email);
+    // (a)+(c) email affiché : on le vérifie s'il est nominatif. Un serveur « catch-all » ne permet pas de
+    // conclure ; mais une adresse nominative publiée par la personne sur son propre site prouvé vaut preuve
+    // (décision du 2026-10-30). Une adresse invalide reste invalide.
+    if (c.email && (c.email_statut === "inconnu" || (c.email_statut === "risque" && affichee(c.email_source)))) {
+      let s = await verifierEmail(c.email);
+      if (s === "risque" && affichee(c.email_source)) s = "valide";
       if (s) {
         await sql`update hub.contacts set email_statut = ${s}, email_verifie_le = now(), maj_le = now() where id = ${c.id}`;
         r.email_affiche = s;

@@ -6,6 +6,10 @@ import { resoudre } from "../src/server/flux/f2-resoudre";
 import { extraire } from "../src/server/flux/f3-extraire";
 import { scorer } from "../src/server/flux/f5-scorer";
 import { trouverContacts } from "../src/server/flux/f4-contacts";
+import { sequencer } from "../src/server/flux/f6-sequencer";
+import { envoyerDus } from "../src/server/flux/envoi";
+import { relever } from "../src/server/flux/f7-reponses";
+import { queue } from "../src/server/queue";
 import { enqueue } from "../src/server/queue";
 
 /**
@@ -45,6 +49,21 @@ const PROCESSORS: Partial<Record<QueueName, { fn: Processor; concurrency: number
     concurrency: 2,
   },
   scorer: { fn: async (job) => scorer(job.data.siren, job.data.ligne), concurrency: 2 },
+  // F6 : une ligne à la fois (rédaction par le GPU partagé).
+  sequencer: { fn: async (job) => sequencer(job.data.ligne, { max: job.data.max, siren: job.data.siren }), concurrency: 1 },
+  // Tâches périodiques : envoi (2 min), relevé des réponses (5 min), F6 quotidien (8 h, jours ouvrés).
+  pilotage: {
+    fn: async (job) => {
+      if (job.name === "envoi") return envoyerDus();
+      if (job.name === "releve") return relever();
+      if (job.name === "f6-quotidien") {
+        const lignes = await sysSql()`select code from hub.lignes where active`;
+        for (const l of lignes) await enqueue("sequencer", { ligne: l.code }, l.code);
+        return { lignes: lignes.length };
+      }
+    },
+    concurrency: 1,
+  },
   // Un seul F1 à la fois, toutes lignes confondues : l'API refuse au-delà de ~7 req/s.
   sourcer: { fn: async (job) => sourcer(job.data.ligne), concurrency: 1 },
   resoudre: {
@@ -82,6 +101,11 @@ const workers = QUEUES.flatMap((name) => {
   if (p.drained) w.on("drained", () => void p.drained!().catch((e) => console.error("drained", e)));
   return [w];
 });
+
+// Planification idempotente : redémarrer le worker ne duplique rien.
+await queue("pilotage").upsertJobScheduler("envoi", { every: 120_000 }, { name: "envoi" });
+await queue("pilotage").upsertJobScheduler("releve", { every: 300_000 }, { name: "releve" });
+await queue("pilotage").upsertJobScheduler("f6-quotidien", { pattern: "0 8 * * 1-5", tz: "Europe/Paris" }, { name: "f6-quotidien" });
 
 // Battement de cœur lu par /api/health : un worker muet se voit en moins de 2 minutes.
 async function battement() {
