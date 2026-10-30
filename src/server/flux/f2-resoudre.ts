@@ -35,7 +35,7 @@ export async function resoudre(siren: string, opts: { forcer?: boolean } = {}) {
       if (p) pages.push(p);
     }
     for (const p of pages) {
-      const r = prouver(p.texte, p.url, siren, e.commune, dirigeants);
+      const r = prouver(p.texte, p.url, siren, e.commune, dirigeants, e.nature_juridique === NATURE_EI ? undefined : e.nom);
       if (r.verifie) {
         const tel = pages.map((x) => ({ t: telephone(x.texte), url: x.url })).find((x) => x.t);
         return { url: new URL(accueil.url).origin, preuve: r.preuve!, tel };

@@ -72,6 +72,8 @@ services:
     build: .
     restart: unless-stopped
     command: ["node_modules/.bin/tsx", "worker/index.ts"]
+    # Laisse les tâches en cours se terminer (worker.close) avant l'arrêt.
+    stop_grace_period: 60s
     env_file: .env
     environment: *runtime_env
     depends_on: [db, redis]

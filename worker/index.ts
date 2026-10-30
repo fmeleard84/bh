@@ -4,6 +4,8 @@ import { sysSql } from "../src/server/db";
 import { sourcer } from "../src/server/flux/f1-sourcer";
 import { resoudre } from "../src/server/flux/f2-resoudre";
 import { extraire } from "../src/server/flux/f3-extraire";
+import { scorer } from "../src/server/flux/f5-scorer";
+import { enqueue } from "../src/server/queue";
 
 /**
  * Worker BH. Chaque flux est branché ici au fil des lots.
@@ -21,7 +23,16 @@ async function compterF2(trouve: boolean | null) {
 
 const PROCESSORS: Partial<Record<QueueName, { fn: Processor; concurrency: number; drained?: () => Promise<void> }>> = {
   // F3 : lecture des sites et Extracteur (GPU de Trooper partagé : 2 à la fois au plus, borné aussi dans ia.ts).
-  extraire: { fn: async (job) => extraire(job.data.siren, job.data.ligne), concurrency: 2 },
+  // Chaîne : site prouvé (F2) → lecture (F3) → qualification (F5).
+  extraire: {
+    fn: async (job) => {
+      const r = await extraire(job.data.siren, job.data.ligne);
+      if (r.faits) await enqueue("scorer", { siren: job.data.siren, ligne: job.data.ligne }, `${job.data.siren}:${job.data.ligne}`);
+      return r;
+    },
+    concurrency: 2,
+  },
+  scorer: { fn: async (job) => scorer(job.data.siren, job.data.ligne), concurrency: 2 },
   // Un seul F1 à la fois, toutes lignes confondues : l'API refuse au-delà de ~7 req/s.
   sourcer: { fn: async (job) => sourcer(job.data.ligne), concurrency: 1 },
   resoudre: {
@@ -29,6 +40,10 @@ const PROCESSORS: Partial<Record<QueueName, { fn: Processor; concurrency: number
       try {
         const r = await resoudre(job.data.siren, { forcer: job.data.forcer });
         await compterF2(r?.trouve ?? false);
+        if (r?.trouve) {
+          const lignes = await sysSql()`select ligne_code from hub.ciblages where siren = ${job.data.siren} and statut = 'source'`;
+          for (const l of lignes) await enqueue("extraire", { siren: job.data.siren, ligne: l.ligne_code }, `${job.data.siren}:${l.ligne_code}`);
+        }
         return r;
       } catch (e) {
         await compterF2(null);

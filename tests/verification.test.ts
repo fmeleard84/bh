@@ -15,6 +15,13 @@ describe("preuve d'identité d'un site", () => {
     expect(prouver("Nicolas Beausset, Lyon", "u", "000000000", "AIX-EN-PROVENCE", ["Beausset"]).verifie).toBe(false);
   });
 
+  it("accepte raison sociale + dirigeant, sauf pour une entreprise individuelle", () => {
+    const t = "Winemakers Rock was founded by James Wood";
+    expect(prouver(t, "u", "000000000", "SARRIANS", ["Wood"], "WINEMAKERS ROCK").verifie).toBe(true);
+    expect(prouver(t, "u", "000000000", "SARRIANS", ["Wood"]).verifie).toBe(false);
+    expect(prouver("Winemakers Rock, Londres", "u", "000000000", "SARRIANS", ["Wood"], "WINEMAKERS ROCK").verifie).toBe(false);
+  });
+
   it("ne confond pas un nom avec un fragment de mot", () => {
     expect(prouver("Marseille, la maison Martineau", "u", "000000000", "MARSEILLE 8", ["Martin"]).verifie).toBe(false);
   });

@@ -52,16 +52,23 @@ export interface Preuve {
   preuve: string | null;
 }
 
-/** Un texte de page prouve-t-il que le site est celui de la société ? */
-export function prouver(texte: string, url: string, siren: string, commune: string | null, dirigeants: string[]): Preuve {
-  const chiffres = texte.replace(/[\s.  -]/g, "");
+/**
+ * Un texte de page prouve-t-il que le site est celui de la société ?
+ *  - le SIREN (ou un SIRET qui le contient) ;
+ *  - ou la commune ET le nom d'un dirigeant ;
+ *  - ou la raison sociale exacte ET le nom d'un dirigeant. `raisonSociale` est
+ *    omise pour une entreprise individuelle : sa raison sociale est le nom du dirigeant.
+ */
+export function prouver(texte: string, url: string, siren: string, commune: string | null, dirigeants: string[], raisonSociale?: string): Preuve {
+  const chiffres = texte.replace(/[\s.\u00a0\u202f-]/g, "");
   if (chiffres.includes(siren)) return { verifie: true, preuve: `SIREN ${siren} présent sur ${url}` };
   const n = ` ${normaliser(texte)} `;
+  const d = dirigeants.map(normaliser).find((nom) => nom.length >= 3 && n.includes(` ${nom} `));
+  if (!d) return { verifie: false, preuve: null };
   const c = communeNormalisee(commune);
-  if (c && n.includes(` ${c} `)) {
-    const d = dirigeants.map(normaliser).find((nom) => nom.length >= 3 && n.includes(` ${nom} `));
-    if (d) return { verifie: true, preuve: `commune « ${c} » et dirigeant « ${d} » présents sur ${url}` };
-  }
+  if (c && n.includes(` ${c} `)) return { verifie: true, preuve: `commune « ${c} » et dirigeant « ${d} » présents sur ${url}` };
+  const r = raisonSociale ? nomUtile(raisonSociale) : "";
+  if (r.replace(/\s/g, "").length >= 6 && n.includes(` ${r} `)) return { verifie: true, preuve: `raison sociale « ${r} » et dirigeant « ${d} » présents sur ${url}` };
   return { verifie: false, preuve: null };
 }
 
@@ -78,7 +85,7 @@ export function telephone(texte: string): string | null {
 
 /** Liens utiles pour prouver l'identité : mentions légales, CGV, contact, à propos. */
 export function liensUtiles(liens: { href: string; texte: string }[], host: string): string[] {
-  const re = /mentions|legal|l[eé]gales|cgv|conditions|contact|propos|qui-sommes|qui sommes|equipe|[eé]quipe/i;
+  const re = /mentions|legal|l[eé]gales|cgv|conditions|contact|propos|about|qui-sommes|qui sommes|equipe|[eé]quipe|team/i;
   const vus = new Set<string>();
   for (const l of liens) {
     try {
