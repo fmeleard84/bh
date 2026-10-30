@@ -1,17 +1,53 @@
 import { Worker, type Processor } from "bullmq";
 import { QUEUES, HEARTBEAT_KEY, redis, type QueueName } from "../src/server/queue";
 import { sysSql } from "../src/server/db";
+import { sourcer } from "../src/server/flux/f1-sourcer";
+import { resoudre } from "../src/server/flux/f2-resoudre";
 
 /**
- * Worker BH. Chaque flux est branché ici au fil des lots (F1 au lot 1, etc.).
- * Concurrence volontairement basse : le GPU de Trooper et l'API Sirene sont partagés.
+ * Worker BH. Chaque flux est branché ici au fil des lots.
+ * Concurrence volontairement basse : l'API Sirene, SearXNG, crawl4ai et le GPU
+ * de Trooper sont partagés avec d'autres services.
  */
-const PROCESSORS: Partial<Record<QueueName, { fn: Processor; concurrency: number }>> = {};
+
+// F2 tourne société par société : une trace d'exécution regroupe un lot, close quand la file est vide.
+let runF2: string | null = null;
+async function compterF2(trouve: boolean | null) {
+  const sql = sysSql();
+  if (!runF2) [{ id: runF2 }] = await sql`insert into hub.runs (flux) values ('F2') returning id`;
+  await sql`update hub.runs set lus = lus + 1, ecrits = ecrits + ${trouve ? 1 : 0}, erreurs = erreurs + ${trouve === null ? 1 : 0} where id = ${runF2}`;
+}
+
+const PROCESSORS: Partial<Record<QueueName, { fn: Processor; concurrency: number; drained?: () => Promise<void> }>> = {
+  // Un seul F1 à la fois, toutes lignes confondues : l'API refuse au-delà de ~7 req/s.
+  sourcer: { fn: async (job) => sourcer(job.data.ligne), concurrency: 1 },
+  resoudre: {
+    fn: async (job) => {
+      try {
+        const r = await resoudre(job.data.siren, { forcer: job.data.forcer });
+        await compterF2(r?.trouve ?? false);
+        return r;
+      } catch (e) {
+        await compterF2(null);
+        throw e;
+      }
+    },
+    concurrency: 3,
+    drained: async () => {
+      if (!runF2) return;
+      await sysSql()`update hub.runs set statut = 'ok', fin_le = now() where id = ${runF2}`;
+      runF2 = null;
+    },
+  },
+};
 
 const workers = QUEUES.flatMap((name) => {
   const p = PROCESSORS[name];
   if (!p) return [];
-  return [new Worker(name, p.fn, { connection: redis(), concurrency: p.concurrency })];
+  const w = new Worker(name, p.fn, { connection: redis(), concurrency: p.concurrency });
+  w.on("failed", (job, err) => console.error(`${name} ${job?.id} : ${err.message}`));
+  if (p.drained) w.on("drained", () => void p.drained!().catch((e) => console.error("drained", e)));
+  return [w];
 });
 
 // Battement de cœur lu par /api/health : un worker muet se voit en moins de 2 minutes.

@@ -1,11 +1,12 @@
 import Link from "next/link";
 import { redirect } from "next/navigation";
-import { CalendarCheck, SlidersHorizontal, Activity, ShieldCheck, LogOut } from "lucide-react";
+import { CalendarCheck, SlidersHorizontal, Building2, Activity, ShieldCheck, LogOut } from "lucide-react";
 import { logout, requireUser } from "@/server/auth";
 
 const NAV = [
   { href: "/", label: "Ma journée", icon: CalendarCheck },
   { href: "/lignes", label: "Lignes", icon: SlidersHorizontal },
+  { href: "/comptes", label: "Comptes", icon: Building2 },
   { href: "/pilotage", label: "Pilotage", icon: Activity },
   { href: "/conformite", label: "Conformité", icon: ShieldCheck },
 ];

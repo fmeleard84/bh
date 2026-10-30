@@ -1,6 +1,22 @@
-import { notFound } from "next/navigation";
-import { requireUser } from "@/server/auth";
-import { asUser } from "@/server/db";
+import { notFound, redirect } from "next/navigation";
+import { peutPiloter, requireUser } from "@/server/auth";
+import { asUser, sysSql } from "@/server/db";
+import { enqueue } from "@/server/queue";
+
+async function lancer(form: FormData) {
+  "use server";
+  const user = await requireUser();
+  const code = String(form.get("code"));
+  if (!(await peutPiloter(user, code))) throw new Error("Réservé au responsable de la ligne.");
+  if (form.get("flux") === "sourcer") {
+    await enqueue("sourcer", { ligne: code }, code);
+  } else {
+    const rows = await sysSql()`select e.siren from hub.entreprises e join hub.ciblages c on c.siren = e.siren
+                                where c.ligne_code = ${code} and e.site_verifie_le is null`;
+    for (const r of rows) await enqueue("resoudre", { siren: r.siren }, r.siren);
+  }
+  redirect("/pilotage");
+}
 
 export const dynamic = "force-dynamic";
 
@@ -10,12 +26,19 @@ export default async function FicheLigne({ params }: { params: Promise<{ code: s
   const [l] = await asUser(user.id, (sql) => sql`select * from hub.lignes where code = ${code}`);
   if (!l) notFound();
   const grille = l.grille_signal as { critere: string; points: number }[];
+  const pilote = await peutPiloter(user, code);
 
   return (
     <div className="space-y-6">
       <header>
         <div className="muted text-sm">{l.marque} · {l.societe_expeditrice}</div>
         <h1 className="text-2xl font-bold">{l.nom}</h1>
+        {pilote && (
+          <div className="flex gap-2 mt-3 flex-wrap">
+            <form action={lancer}><input type="hidden" name="code" value={code} /><input type="hidden" name="flux" value="sourcer" /><button className="btn">Sourcer (F1)</button></form>
+            <form action={lancer}><input type="hidden" name="code" value={code} /><input type="hidden" name="flux" value="resoudre" /><button className="btn">Résoudre les sites (F2)</button></form>
+          </div>
+        )}
       </header>
 
       <section className="grid gap-4 md:grid-cols-2">

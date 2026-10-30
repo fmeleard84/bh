@@ -43,3 +43,10 @@ export async function requireUser(): Promise<SessionUser> {
   if (!u) redirect("/login");
   return u;
 }
+
+/** Peut lancer les flux et régler la fiche d'une ligne : super-admin ou responsable de la ligne. */
+export async function peutPiloter(user: SessionUser, ligneCode: string): Promise<boolean> {
+  if (user.superAdmin) return true;
+  const [a] = await sysSql()`select 1 from hub.acces_lignes where utilisateur_id = ${user.id} and ligne_code = ${ligneCode} and role = 'responsable'`;
+  return !!a;
+}
