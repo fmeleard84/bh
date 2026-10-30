@@ -13,6 +13,7 @@ services:
       # Débit volontairement bas : la réputation de l'adresse IP de Trooper ne doit pas en souffrir.
       RCH__THROTTLE__MAX_REQUESTS_PER_MINUTE: 20
       RCH__THROTTLE__MAX_REQUESTS_PER_DAY: 1500
+      # Le bridage ne vaut que pour /v1/* : BH n appelle que /v1/check_email.
     ports:
       - "127.0.0.1:17190:8080"
     mem_limit: 256m

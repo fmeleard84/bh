@@ -17,14 +17,18 @@ const SOURCE_LINKEDIN = "recherche:searxng";
 
 type Statut = "valide" | "risque" | "invalide" | "generique" | "inconnu";
 
-/** Reacher : POST /v0/check_email → is_reachable safe | risky | invalid | unknown. */
+/**
+ * Reacher : POST /v1/check_email → is_reachable safe | risky | invalid | unknown.
+ * /v1 et non /v0 : seules les routes /v1 respectent le bridage configuré sur
+ * Trooper (20/min, 1 500/jour), qui protège la réputation de son adresse IP.
+ */
 async function verifierEmail(email: string): Promise<Statut | null> {
   const base = process.env.REACHER_URL;
   if (!base) return null;
   try {
-    const res = await fetch(`${base}/v0/check_email`, {
+    const res = await fetch(`${base}/v1/check_email`, {
       method: "POST",
-      headers: { "content-type": "application/json", ...(process.env.REACHER_TOKEN ? { authorization: process.env.REACHER_TOKEN } : {}) },
+      headers: { "content-type": "application/json", ...(process.env.REACHER_TOKEN ? { "x-reacher-secret": process.env.REACHER_TOKEN } : {}) },
       body: JSON.stringify({ to_email: email }),
       signal: AbortSignal.timeout(90_000),
     });
