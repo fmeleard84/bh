@@ -1,0 +1,19 @@
+# Tunnel dédié BH → Reacher sur Trooper, séparé de trooper-tunnel.service (partagé)
+# pour ne jamais toucher aux accès IA des autres services.
+# Installation (vaya) : cp vers /etc/systemd/system/, puis
+#   ufw allow from 172.18.0.0/16 to any port 17190 proto tcp
+#   systemctl daemon-reload && systemctl enable --now bh-reacher-tunnel
+[Unit]
+Description=BH — tunnel vers Reacher (vérification d'emails) sur Trooper :17190
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Environment=AUTOSSH_GATETIME=0
+ExecStart=/usr/bin/autossh -M 0 -N -o ServerAliveInterval=30 -o ServerAliveCountMax=3 -o ExitOnForwardFailure=yes \
+  -L 127.0.0.1:17190:127.0.0.1:17190 -L 172.18.0.1:17190:127.0.0.1:17190 trooper-backup
+Restart=always
+RestartSec=10
+
+[Install]
+WantedBy=multi-user.target

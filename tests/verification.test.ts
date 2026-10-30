@@ -87,3 +87,13 @@ describe("garde-fous de l'Extracteur", async () => {
     expect(nombreJustifie("equipe", 12, "112 clients")).toBe(false);
   });
 });
+
+describe("motifs d'email", async () => {
+  const { motifs } = await import("../src/server/flux/f4-contacts");
+  it("produit les motifs français usuels, sans accents", () => {
+    const m = motifs("Hervé", "Rault", "revesdevins.com");
+    expect(m[0]).toBe("herve.rault@revesdevins.com");
+    expect(m).toContain("hrault@revesdevins.com");
+    expect(motifs("Jean-Pierre", "Le Goff", "x.fr")[0]).toBe("jeanpierre.legoff@x.fr");
+  });
+});

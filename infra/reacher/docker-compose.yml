@@ -1,0 +1,18 @@
+# Reacher (vérification d'emails par SMTP, open source) — à déployer sur TROOPER,
+# dans /opt/bh-reacher : le port 25 sortant est bloqué sur vaya, ouvert sur Trooper.
+# Écoute en local seulement ; BH y accède par un tunnel SSH dédié (bh-reacher-tunnel).
+services:
+  reacher:
+    image: reacherhq/backend:v0.11.7
+    restart: unless-stopped
+    environment:
+      RCH__HELLO_NAME: bh.vaya.rip
+      RCH__FROM_EMAIL: verification@bh.vaya.rip
+      RCH__HTTP_HOST: 0.0.0.0
+      RCH__HEADER_SECRET: ${REACHER_TOKEN}
+      # Débit volontairement bas : la réputation de l'adresse IP de Trooper ne doit pas en souffrir.
+      RCH__THROTTLE__MAX_REQUESTS_PER_MINUTE: 20
+      RCH__THROTTLE__MAX_REQUESTS_PER_DAY: 1500
+    ports:
+      - "127.0.0.1:17190:8080"
+    mem_limit: 256m
