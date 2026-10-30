@@ -111,3 +111,13 @@ describe("motifs d'email", async () => {
     expect(motifs("Jean-Pierre", "Le Goff", "x.fr")[0]).toBe("jeanpierre.legoff@x.fr");
   });
 });
+
+describe("adresses masquées", async () => {
+  const { desobfusquer } = await import("../src/server/flux/f4-contacts");
+  it("remet au format normal", () => {
+    expect(desobfusquer("contact[@]parcellair.com")).toBe("contact@parcellair.com");
+    expect(desobfusquer("commercial[at]dis-vin.fr")).toBe("commercial@dis-vin.fr");
+    expect(desobfusquer("jean (at) vins (dot) fr")).toBe("jean@vins.fr");
+    expect(desobfusquer("Julien@Agence.vin")).toBe("julien@agence.vin");
+  });
+});

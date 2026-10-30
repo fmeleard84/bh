@@ -22,23 +22,55 @@ type Statut = "valide" | "risque" | "invalide" | "generique" | "inconnu";
  * /v1 et non /v0 : seules les routes /v1 respectent le bridage configuré sur
  * Trooper (20/min, 1 500/jour), qui protège la réputation de son adresse IP.
  */
-async function verifierEmail(email: string): Promise<Statut | null> {
+// BH s'espace lui-même sous le bridage de Reacher (20/min) : une vérification toutes les 3,2 s, en file.
+const ECART_REACHER_MS = 3_200;
+let derniereVerif = 0;
+let fileReacher: Promise<unknown> = Promise.resolve();
+
+function verifierEmail(email: string): Promise<Statut | null> {
+  const tache = fileReacher.then(() => appelReacher(email));
+  fileReacher = tache.catch(() => {});
+  return tache;
+}
+
+async function appelReacher(email: string): Promise<Statut | null> {
   const base = process.env.REACHER_URL;
   if (!base) return null;
-  try {
-    const res = await fetch(`${base}/v1/check_email`, {
-      method: "POST",
-      headers: { "content-type": "application/json", ...(process.env.REACHER_TOKEN ? { "x-reacher-secret": process.env.REACHER_TOKEN } : {}) },
-      body: JSON.stringify({ to_email: email }),
-      signal: AbortSignal.timeout(90_000),
-    });
-    if (!res.ok) return null;
-    const r = (await res.json()) as { is_reachable: string; smtp?: { is_catch_all?: boolean } };
-    if (r.smtp?.is_catch_all) return "risque"; // le serveur accepte tout : rien n'est prouvé
-    return ({ safe: "valide", risky: "risque", invalid: "invalide" } as Record<string, Statut>)[r.is_reachable] ?? "inconnu";
-  } catch {
-    return null;
+  for (let essai = 0; essai < 4; essai++) {
+    const attente = derniereVerif + ECART_REACHER_MS - Date.now();
+    if (attente > 0) await new Promise((r) => setTimeout(r, attente));
+    derniereVerif = Date.now();
+    try {
+      const res = await fetch(`${base}/v1/check_email`, {
+        method: "POST",
+        headers: { "content-type": "application/json", ...(process.env.REACHER_TOKEN ? { "x-reacher-secret": process.env.REACHER_TOKEN } : {}) },
+        body: JSON.stringify({ to_email: email }),
+        signal: AbortSignal.timeout(90_000),
+      });
+      // Bridage atteint : Reacher dit combien attendre (« please wait 51.2s »). On attend, on ne conclut rien.
+      if (res.status === 429) {
+        const s = Number((await res.text()).match(/wait ([\d.]+)s/)?.[1] ?? 60);
+        await new Promise((r) => setTimeout(r, Math.ceil(s * 1000) + 500));
+        continue;
+      }
+      if (!res.ok) return null;
+      const r = (await res.json()) as { is_reachable: string; smtp?: { is_catch_all?: boolean } };
+      if (r.smtp?.is_catch_all) return "risque"; // le serveur accepte tout : rien n'est prouvé
+      return ({ safe: "valide", risky: "risque", invalid: "invalide" } as Record<string, Statut>)[r.is_reachable] ?? "inconnu";
+    } catch {
+      return null;
+    }
   }
+  return null;
+}
+
+/** « contact[@]parcellair.com », « commercial[at]dis-vin.fr », « x (at) y (dot) fr » → adresse normale. */
+export function desobfusquer(email: string): string {
+  return email
+    .replace(/\s*[[({]\s*(?:@|at|arobase)\s*[\])}]\s*/gi, "@")
+    .replace(/\s*[[({]\s*(?:\.|dot|point)\s*[\])}]\s*/gi, ".")
+    .replace(/\s+/g, "")
+    .toLowerCase();
 }
 
 function slug(s: string): string {

@@ -4,6 +4,7 @@ import { json, prompt } from "../ia";
 import { lire, type PageLue } from "../sources/web";
 import { normaliser } from "../texte";
 import { evenement } from "./runs";
+import { desobfusquer } from "./f4-contacts";
 
 /**
  * F3 — Crawler et extraire. Lit l'accueil et jusqu'à 6 pages utiles d'un site
@@ -151,7 +152,9 @@ export async function extraire(siren: string, ligneCode: string) {
     if (!p.nom || !parUrl.has(p.preuve_url)) continue;
     const connu = connus.get(cle(p.nom, p.prenom));
     if (connu) { p.nom = connu.nom; p.prenom = connu.prenom; }
-    let email = p.email && tout.toLowerCase().includes(p.email.toLowerCase()) ? p.email.toLowerCase() : null;
+    // L'adresse doit figurer telle quelle dans la page ; on la remet ensuite au format normal si elle y est masquée.
+    let email = p.email && tout.toLowerCase().includes(p.email.toLowerCase()) ? desobfusquer(p.email) : null;
+    if (email && !/^[^@\s]+@[^@\s]+\.[a-z]{2,}$/.test(email)) email = null;
     // Une adresse partagée (contact@) reste rattachée à la première personne qui la porte.
     if (email) {
       const [pris] = await sql`select 1 from hub.contacts where siren = ${siren} and email = ${email}
