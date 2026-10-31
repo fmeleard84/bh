@@ -36,9 +36,14 @@ export function plafond(): number {
   return Number(process.env.APIFY_PLAFOND_CENTS ?? 2000);
 }
 
-/** Remplace {{url}} dans le modèle d'entrée du robot, à toute profondeur. */
+/** Identifiant d'un profil ou d'une page LinkedIn : « …/in/jean-dupont/ » → « jean-dupont ». */
+export function slug(url: string): string {
+  return url.replace(/[?#].*$/, "").replace(/\/+$/, "").split("/").pop() ?? url;
+}
+
+/** Remplace {{url}} et {{slug}} dans le modèle d'entrée du robot, à toute profondeur. */
 export function entree(config: unknown, url: string): unknown {
-  if (typeof config === "string") return config.replaceAll("{{url}}", url);
+  if (typeof config === "string") return config.replaceAll("{{url}}", url).replaceAll("{{slug}}", slug(url));
   if (Array.isArray(config)) return config.map((x) => entree(x, url));
   if (config && typeof config === "object") return Object.fromEntries(Object.entries(config).map(([k, v]) => [k, entree(v, url)]));
   return config;
@@ -62,6 +67,22 @@ async function compter(unites: number, cents: number) {
                    cout_cents = hub.consommation.cout_cents + excluded.cout_cents`;
 }
 
+/**
+ * Coût réel d'une exécution, en centimes. Les robots facturés à l'élément (pay per event) ne
+ * portent leurs frais qu'un instant après la fin : la réponse de fin d'exécution dit encore
+ * presque 0. On relit donc l'exécution, deux fois au plus, et on garde le plus élevé.
+ */
+async function coutFinal(runId: string | undefined, usd = 0): Promise<number> {
+  for (let i = 0; runId && i < 3; i++) {
+    if (i) await new Promise((r) => setTimeout(r, 2000));
+    const r = await fetch(`${API}/actor-runs/${runId}`, { headers: { authorization: `Bearer ${cle()}` }, signal: AbortSignal.timeout(20_000) });
+    const u = r.ok ? ((await r.json()) as { data?: { usageTotalUsd?: number } }).data?.usageTotalUsd ?? 0 : 0;
+    if (u > usd) usd = u;
+    if (i && u > 0) break;
+  }
+  return Math.round(usd * 10000) / 100;
+}
+
 /** Une exécution d'un robot précis. Lève une erreur lisible ; ne bascule pas de robot. */
 export async function executer(c: Connecteur, url: string): Promise<{ items: Record<string, unknown>[]; cents: number }> {
   if (c.plateforme === "linkedin" && !c.sans_cookie) throw new Error(`robot ${c.robot} refusé : LinkedIn exige un robot sans cookie`);
@@ -75,10 +96,9 @@ export async function executer(c: Connecteur, url: string): Promise<{ items: Rec
   });
   const corps = (await res.json().catch(() => ({}))) as { data?: { status?: string; defaultDatasetId?: string; usageTotalUsd?: number }; error?: { message?: string } };
   if (!res.ok || !corps.data) throw new Error(`Apify ${res.status} : ${corps.error?.message ?? "réponse illisible"}`);
-  const run = corps.data;
-  const cents = Math.round((run.usageTotalUsd ?? 0) * 10000) / 100;
+  const run = corps.data as typeof corps.data & { id?: string };
   if (run.status !== "SUCCEEDED") {
-    await compter(0, cents);
+    await compter(0, await coutFinal(run.id, run.usageTotalUsd));
     throw new Error(`exécution ${run.status ?? "?"}${run.status === "RUNNING" ? ` (plus de ${ATTENTE_S} s)` : ""}`);
   }
   const ds = await fetch(`${API}/datasets/${run.defaultDatasetId}/items?clean=true&format=json&limit=200`, {
@@ -86,6 +106,7 @@ export async function executer(c: Connecteur, url: string): Promise<{ items: Rec
     signal: AbortSignal.timeout(60_000),
   });
   const items = ds.ok ? ((await ds.json()) as Record<string, unknown>[]) : [];
+  const cents = await coutFinal(run.id, run.usageTotalUsd);
   await compter(items.length, cents);
   return { items, cents };
 }

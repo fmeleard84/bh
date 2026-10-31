@@ -275,3 +275,11 @@ describe("connecteurs Apify", async () => {
       .toEqual({ targetUrls: ["https://www.linkedin.com/in/x"], maxPosts: 10, opts: { q: "posts de https://www.linkedin.com/in/x" } });
   });
 });
+
+describe("identifiant LinkedIn", async () => {
+  const { slug } = await import("../src/server/sources/apify");
+  it("dernier segment, sans barre finale ni paramètres", () => {
+    expect(slug("https://fr.linkedin.com/in/jean-dupont-12ab/?originalSubdomain=fr")).toBe("jean-dupont-12ab");
+    expect(slug("https://www.linkedin.com/company/deltapro/")).toBe("deltapro");
+  });
+});
