@@ -10,8 +10,10 @@ import { evenement } from "./runs";
  * Avant CHAQUE message, on revérifie : séquence toujours en cours (aucune réponse),
  * contact sans opposition, absent de la liste de suppression du groupe.
  * Fenêtre : du lundi au vendredi, 8 h - 18 h (heure de Paris). Quota par boîte.
- * Chaque message porte qui écrit, pour quelle société, l'origine des coordonnées
- * et un lien de désinscription en un clic (cahier §10, RFC 8058).
+ * Mise en relation individuelle, pas un envoi de masse : chaque message se termine par
+ * la seule signature de la boîte, comme un mail écrit à la main, sans bandeau ni en-tête
+ * List-Unsubscribe. L'opposition passe par une simple réponse (« stop », « ne plus me
+ * contacter » : F7) ; la page /d reste disponible pour un lien donné à la main.
  */
 const FUSEAU = "Europe/Paris";
 
@@ -115,14 +117,8 @@ function transporteur(b: Record<string, any>): Transporter {
   return transporteurs.get(b.id)!;
 }
 
-export function piedDeMessage(b: { nom_affiche: string; signature: string; adresse_postale: string }, societe: string, lien: string): string {
-  return [
-    "",
-    b.signature || b.nom_affiche,
-    `${societe}${b.adresse_postale ? ` — ${b.adresse_postale}` : ""}`,
-    "",
-    `Vous recevez ce message car vos coordonnées professionnelles sont publiques (site de votre société, registre des entreprises). Pour ne plus être contacté : ${lien} ou répondez STOP.`,
-  ].join("\n");
+export function piedDeMessage(b: { nom_affiche: string; signature: string }, societe: string): string {
+  return ["", b.signature || `${b.nom_affiche}\n${societe}`].join("\n");
 }
 
 export async function envoyerDus(): Promise<{ envoyes: number; motif?: string }> {
@@ -152,14 +148,12 @@ export async function envoyerDus(): Promise<{ envoyes: number; motif?: string }>
         ${prec ? sql`and b.id = ${prec.boite_id}` : sql``}
       order by du_jour limit 1`;
     if (!b || b.du_jour >= b.quota_jour) continue;
-    const lien = `${process.env.BH_DESINSCRIPTION_URL ?? "https://bh.vaya.rip/d"}/${jetonDesinscription(m.contact_id)}`;
     try {
       const info = await transporteur(b).sendMail({
         from: { name: b.nom_affiche, address: b.email },
         to: m.email,
         subject: m.objet,
-        text: `${m.corps}\n${piedDeMessage(b as unknown as Parameters<typeof piedDeMessage>[0], m.societe_expeditrice, lien)}`,
-        headers: { "List-Unsubscribe": `<${lien}/1clic>, <mailto:${b.email}?subject=STOP>`, "List-Unsubscribe-Post": "List-Unsubscribe=One-Click" },
+        text: `${m.corps}\n${piedDeMessage(b as unknown as Parameters<typeof piedDeMessage>[0], m.societe_expeditrice)}`,
         ...(prec?.message_id ? { inReplyTo: prec.message_id, references: [prec.message_id] } : {}),
       });
       await sql`update hub.echanges set statut_envoi = 'envoye', envoye_le = now(), boite_id = ${b.id}, message_id = ${info.messageId} where id = ${m.id}`;

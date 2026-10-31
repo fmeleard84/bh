@@ -34,7 +34,8 @@ export function estAbsence(m: Pick<ParsedMail, "headers" | "subject">): boolean 
 
 /** Texte de la réponse sans la citation du message d'origine. */
 export function sansCitation(texte: string): string {
-  const coupe = texte.search(/^\s*(>|Le .{5,80} a écrit|On .{5,80} wrote|-----Original Message|De :|From:)/m);
+  // Gmail coupe souvent « Le sam. 31 oct. 2026 à 11:23, X <x@y> a écrit : » sur deux lignes.
+  const coupe = texte.search(/^\s*(>|Le .{3,200}(?:\n.{0,200})?\s?a écrit|On .{3,200}(?:\n.{0,200})?\s?wrote|-----Original Message|De :|From:)/m);
   return (coupe > 0 ? texte.slice(0, coupe) : texte).trim();
 }
 
@@ -65,7 +66,8 @@ async function brouillonReponse(fil: string, classe: string, prenom: string | nu
       properties: { resume: { type: "string", maxLength: 300 }, brouillon: { type: "string", maxLength: 900 } } },
     maxTokens: 800,
   });
-  return data;
+  // Texte brut : le modèle glisse parfois des <br>.
+  return { ...data, brouillon: data.brouillon.replace(/<br\s*\/?>/gi, "\n") };
 }
 
 export async function relever(): Promise<{ boites: number; messages: number }> {

@@ -1,0 +1,44 @@
+# Domaine d'envoi velosiq-contact.com (BH, ligne velosiq_transit).
+# À copier dans /opt/traefik/dynamic/ SEULEMENT quand le A de velosiq-contact.com pointe vers 37.27.67.11
+# (sinon la demande de certificat échoue en boucle).
+#  - /d/* et /_next/* → BH : page de désinscription des prospects ;
+#  - tout le reste → redirection vers le site de la marque.
+http:
+  routers:
+    bh-envoi-velosiq-contact-d:
+      rule: "(Host(`velosiq-contact.com`) || Host(`www.velosiq-contact.com`)) && (PathPrefix(`/d/`) || PathPrefix(`/_next/`))"
+      entryPoints: [websecure]
+      service: bh-web
+      priority: 100
+      tls:
+        certResolver: myresolver
+        domains:
+          - main: velosiq-contact.com
+            sans: [www.velosiq-contact.com]
+    bh-envoi-velosiq-contact:
+      rule: "Host(`velosiq-contact.com`) || Host(`www.velosiq-contact.com`)"
+      entryPoints: [websecure]
+      middlewares: [bh-envoi-velosiq-contact-vers-site]
+      service: noop@internal
+      tls:
+        certResolver: myresolver
+    bh-envoi-velosiq-contact-http:
+      rule: "Host(`velosiq-contact.com`) || Host(`www.velosiq-contact.com`)"
+      entryPoints: [web]
+      middlewares: [bh-envoi-https]
+      service: noop@internal
+  middlewares:
+    bh-envoi-velosiq-contact-vers-site:
+      redirectRegex:
+        regex: "^https?://[^/]+/(.*)"
+        replacement: "https://velosiq.com/"
+        permanent: false
+    bh-envoi-https:
+      redirectScheme:
+        scheme: https
+        permanent: true
+  services:
+    bh-web:
+      loadBalancer:
+        servers:
+          - url: "http://bh-web-1:3300"
