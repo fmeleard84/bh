@@ -35,7 +35,7 @@ export default async function AppLayout({ children }: { children: React.ReactNod
           <button className="flex items-center gap-2 text-sm muted" type="submit"><LogOut size={14} /> Sortir</button>
         </form>
       </aside>
-      <main className="flex-1 p-4 md:p-8 max-w-6xl">{children}</main>
+      <main className="flex-1 min-w-0 px-4 py-4 md:px-[10%] md:py-8">{children}</main>
     </div>
   );
 }

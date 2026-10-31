@@ -1,7 +1,9 @@
 import Link from "next/link";
 import { requireUser } from "@/server/auth";
 import { asUser } from "@/server/db";
+import { cartesLignes } from "@/server/cartes";
 import { ecarter, regenerer, reponseTraitee, tacheFaite, valider } from "./actions";
+import { CarteLigne } from "./carte-ligne";
 
 export const dynamic = "force-dynamic";
 
@@ -11,12 +13,15 @@ const TACHE: Record<string, string> = {
 };
 
 /**
- * Ma journée : la seule page d'accueil. Une file de décisions préparées, dans
- * l'ordre où elles rapportent : réponses, tâches du jour, brouillons à valider.
+ * Ma journée : la seule page d'accueil. En tête, une carte par ligne (ce qui attend
+ * un humain, ce que BH fait seul, l'évolution) ; dessous, la file de décisions préparées,
+ * dans l'ordre où elles rapportent : réponses, tâches du jour, brouillons à valider.
+ * Une section vide n'est pas affichée.
  */
 export default async function MaJournee() {
   const user = await requireUser();
-  const { reponses, taches, brouillons, qualifies } = await asUser(user.id, async (sql) => ({
+  const { cartes, reponses, taches, brouillons } = await asUser(user.id, async (sql) => ({
+    cartes: await cartesLignes(sql),
     reponses: await sql`select * from hub.v_a_traiter limit 50`,
     taches: await sql`
       select t.*, e.nom as entreprise, ct.prenom, ct.nom, ct.linkedin_url,
@@ -24,27 +29,25 @@ export default async function MaJournee() {
       from hub.taches t join hub.entreprises e on e.siren = t.siren left join hub.contacts ct on ct.id = t.contact_id
       where t.fait_le is null and t.echeance < now() + interval '1 day' order by t.echeance limit 50`,
     brouillons: await sql`select * from hub.v_brouillons limit 20`,
-    qualifies: await sql`select count(*)::int as n from hub.ciblages where statut = 'qualifie'`,
   }));
+  const rien = reponses.length + taches.length + brouillons.length === 0;
 
   return (
     <div className="space-y-8">
       <header>
         <h1 className="text-2xl font-bold">Ma journée</h1>
-        <p className="muted text-sm">Ce qui attend une décision humaine, préparé et classé.</p>
+        <p className="muted text-sm">BH travaille seul ; ici, seulement ce qui attend une décision humaine, ligne par ligne.</p>
       </header>
 
-      <section className="grid gap-4 sm:grid-cols-4">
-        <Tuile titre="Réponses à traiter" valeur={reponses.length} />
-        <Tuile titre="Tâches du jour" valeur={taches.length} />
-        <Tuile titre="Séquences à valider" valeur={brouillons.length} />
-        <Tuile titre="Comptes qualifiés" valeur={qualifies[0].n} />
+      <section className="grid gap-4 lg:grid-cols-2 2xl:grid-cols-3 items-start">
+        {cartes.map((c) => <CarteLigne key={c.code} c={c} />)}
       </section>
 
+      {rien && <p className="muted text-sm card p-5">Aucune réponse, tâche ni séquence n'attend de décision.</p>}
+
       {/* ─── Réponses ─────────────────────────────────────────────── */}
-      <section className="space-y-3">
+      {reponses.length > 0 && <section id="reponses" className="space-y-3 scroll-mt-4">
         <h2 className="font-semibold">Réponses</h2>
-        {reponses.length === 0 && <p className="muted text-sm card p-5">Aucune réponse en attente.</p>}
         {reponses.map((r) => (
           <article key={r.id} className="card p-5 text-sm space-y-2">
             <div className="flex flex-wrap gap-2 items-center">
@@ -66,12 +69,11 @@ export default async function MaJournee() {
             </form>
           </article>
         ))}
-      </section>
+      </section>}
 
       {/* ─── Tâches ───────────────────────────────────────────────── */}
-      <section className="space-y-3">
+      {taches.length > 0 && <section id="taches" className="space-y-3 scroll-mt-4">
         <h2 className="font-semibold">Tâches du jour</h2>
-        {taches.length === 0 && <p className="muted text-sm card p-5">Aucune tâche aujourd'hui.</p>}
         {taches.map((t) => (
           <article key={t.id} className="card p-5 text-sm space-y-2">
             <div className="flex flex-wrap gap-2 items-center">
@@ -89,13 +91,12 @@ export default async function MaJournee() {
             </form>
           </article>
         ))}
-      </section>
+      </section>}
 
       {/* ─── Brouillons ───────────────────────────────────────────── */}
-      <section className="space-y-3">
+      {brouillons.length > 0 && <section id="brouillons" className="space-y-3 scroll-mt-4">
         <h2 className="font-semibold">Séquences à valider</h2>
         <p className="muted text-sm">Relisez, retouchez si besoin, validez : BH planifie l'envoi dans la fenêtre 8 h - 18 h et crée les tâches LinkedIn et appel.</p>
-        {brouillons.length === 0 && <p className="muted text-sm card p-5">Aucune séquence en attente.</p>}
         {brouillons.map((b) => (
           <article key={b.sequence_id} className="card p-5 text-sm space-y-3">
             <div className="flex flex-wrap gap-2 items-center">
@@ -124,16 +125,7 @@ export default async function MaJournee() {
             </form>
           </article>
         ))}
-      </section>
-    </div>
-  );
-}
-
-function Tuile({ titre, valeur }: { titre: string; valeur: number }) {
-  return (
-    <div className="card p-4">
-      <div className="muted text-sm">{titre}</div>
-      <div className="text-3xl font-bold mt-1">{valeur}</div>
+      </section>}
     </div>
   );
 }
