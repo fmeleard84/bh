@@ -1,0 +1,35 @@
+# Domaine d'envoi tontongg-pro.com (BH, ligne ttgg_agents).
+# À copier dans /opt/traefik/dynamic/ SEULEMENT quand le A de tontongg-pro.com pointe vers 37.27.67.11
+# (sinon la demande de certificat échoue en boucle).
+#  - /d/* et /_next/* → BH : page de désinscription des prospects ;
+#  - tout le reste → redirection vers le site de la marque.
+http:
+  routers:
+    bh-envoi-tontongg-pro-d:
+      rule: "(Host(`tontongg-pro.com`) || Host(`www.tontongg-pro.com`)) && (PathPrefix(`/d/`) || PathPrefix(`/_next/`))"
+      entryPoints: [websecure]
+      service: bh-web@file
+      priority: 100
+      tls:
+        certResolver: myresolver
+        domains:
+          - main: tontongg-pro.com
+            sans: [www.tontongg-pro.com]
+    bh-envoi-tontongg-pro:
+      rule: "Host(`tontongg-pro.com`) || Host(`www.tontongg-pro.com`)"
+      entryPoints: [websecure]
+      middlewares: [bh-envoi-tontongg-pro-vers-site]
+      service: noop@internal
+      tls:
+        certResolver: myresolver
+    bh-envoi-tontongg-pro-http:
+      rule: "Host(`tontongg-pro.com`) || Host(`www.tontongg-pro.com`)"
+      entryPoints: [web]
+      middlewares: [bh-envoi-https@file]
+      service: noop@internal
+  middlewares:
+    bh-envoi-tontongg-pro-vers-site:
+      redirectRegex:
+        regex: "^https?://[^/]+/(.*)"
+        replacement: "https://tontongg.com/"
+        permanent: false

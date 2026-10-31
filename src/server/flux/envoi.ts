@@ -112,7 +112,7 @@ function transporteur(b: Record<string, any>): Transporter {
   if (!transporteurs.has(b.id)) {
     const pass = process.env[b.secret_ref];
     if (!pass) throw new Error(`secret ${b.secret_ref} absent`);
-    transporteurs.set(b.id, nodemailer.createTransport({ host: b.smtp_host, port: b.smtp_port, secure: b.smtp_port === 465, auth: { user: b.email, pass } }));
+    transporteurs.set(b.id, nodemailer.createTransport({ host: b.smtp_host, port: b.smtp_port, secure: b.smtp_port === 465, auth: { user: b.identifiant ?? b.email, pass } }));
   }
   return transporteurs.get(b.id)!;
 }

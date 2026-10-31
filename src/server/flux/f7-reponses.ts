@@ -70,28 +70,46 @@ async function brouillonReponse(fil: string, classe: string, prenom: string | nu
   return { ...data, brouillon: data.brouillon.replace(/<br\s*\/?>/gi, "\n") };
 }
 
+/** Adresses destinataires d'un message (To, Cc, Delivered-To), en minuscules. */
+function destinataires(m: ParsedMail): string[] {
+  const listes = [m.to, m.cc].flatMap((x) => (Array.isArray(x) ? x : x ? [x] : []));
+  const livre = m.headers.get("delivered-to");
+  return [...listes.flatMap((l) => l.value.map((v) => v.address ?? "")), ...(Array.isArray(livre) ? livre : livre ? [livre] : []).map(String)]
+    .map((a) => a.toLowerCase())
+    .filter(Boolean);
+}
+
 export async function relever(): Promise<{ boites: number; messages: number }> {
   const sql = sysSql();
   const boites = await sql`select * from hub.boites where active`;
-  let messages = 0;
+  // Des alias d'un même compte partagent une boîte de réception : une seule relève par compte.
+  const comptes = new Map<string, Record<string, any>[]>();
   for (const b of boites) {
-    const pass = process.env[b.secret_ref];
+    const cle = `${b.imap_host}:${(b.identifiant ?? b.email).toLowerCase()}`;
+    comptes.set(cle, [...(comptes.get(cle) ?? []), b]);
+  }
+  let messages = 0;
+  for (const groupe of comptes.values()) {
+    const b0 = groupe[0];
+    const pass = process.env[b0.secret_ref];
     if (!pass) continue;
-    const client = new ImapFlow({ host: b.imap_host, port: b.imap_port, secure: true, auth: { user: b.email, pass }, logger: false });
+    const client = new ImapFlow({ host: b0.imap_host, port: b0.imap_port, secure: true, auth: { user: b0.identifiant ?? b0.email, pass }, logger: false });
     await client.connect();
     const verrou = await client.getMailboxLock("INBOX");
-    let dernier = Number(b.imap_dernier_uid);
+    let dernier = Math.min(...groupe.map((b) => Number(b.imap_dernier_uid)));
     try {
       for await (const msg of client.fetch({ uid: `${dernier + 1}:*` }, { uid: true, source: true }, { uid: true })) {
         if (msg.uid <= dernier) continue;
-        await traiter(await simpleParser(msg.source as Buffer), b);
+        const m = await simpleParser(msg.source as Buffer);
+        const pour = destinataires(m);
+        await traiter(m, groupe.find((b) => pour.includes(b.email.toLowerCase())) ?? b0);
         dernier = Math.max(dernier, msg.uid);
         messages++;
       }
     } finally {
       verrou.release();
       await client.logout();
-      await sql`update hub.boites set imap_dernier_uid = ${dernier} where id = ${b.id}`;
+      await sql`update hub.boites set imap_dernier_uid = greatest(imap_dernier_uid, ${dernier}) where id = any(${groupe.map((b) => b.id)})`;
     }
   }
   return { boites: boites.length, messages };
