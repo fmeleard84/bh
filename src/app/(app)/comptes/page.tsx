@@ -1,6 +1,7 @@
 import Link from "next/link";
 import { requireUser } from "@/server/auth";
 import { asUser } from "@/server/db";
+import { marqueCourante } from "@/server/marque";
 
 export const dynamic = "force-dynamic";
 
@@ -17,10 +18,11 @@ export default async function Comptes({ searchParams }: { searchParams: Promise<
   const page = Math.max(1, Number(sp.page ?? 1));
   const q = (sp.q ?? "").trim();
   const site = sp.site ?? "";
+  const marque = await marqueCourante(user.id);
 
   const { lignes, comptes, total } = await asUser(user.id, async (sql) => {
     const lignes = await sql`select code, nom from hub.lignes order by code`;
-    const ligne = sp.ligne ?? lignes[0]?.code;
+    const ligne = marque?.code ?? sp.ligne ?? lignes[0]?.code;
     const filtres = sql`
       c.ligne_code = ${ligne}
       ${sp.statut ? sql`and c.statut = ${sp.statut}` : sql``}
@@ -37,7 +39,7 @@ export default async function Comptes({ searchParams }: { searchParams: Promise<
     return { lignes, comptes, total: n as number };
   });
 
-  const ligne = sp.ligne ?? lignes[0]?.code;
+  const ligne = marque?.code ?? sp.ligne ?? lignes[0]?.code;
   const lien = (p: Record<string, string | number>) => `/comptes?${new URLSearchParams({ ...(sp as Record<string, string>), ...Object.fromEntries(Object.entries(p).map(([k, v]) => [k, String(v)])) })}`;
 
   return (
@@ -48,7 +50,9 @@ export default async function Comptes({ searchParams }: { searchParams: Promise<
       </header>
 
       <form className="card p-4 grid gap-3 sm:grid-cols-5">
-        <select name="ligne" defaultValue={ligne} className="input">{lignes.map((l) => <option key={l.code} value={l.code}>{l.nom}</option>)}</select>
+        {marque ? <input type="hidden" name="ligne" value={ligne} /> : (
+          <select name="ligne" defaultValue={ligne} className="input">{lignes.map((l) => <option key={l.code} value={l.code}>{l.nom}</option>)}</select>
+        )}
         <select name="statut" defaultValue={sp.statut ?? ""} className="input"><option value="">Tous statuts</option>{STATUTS.map((s) => <option key={s}>{s}</option>)}</select>
         <select name="site" defaultValue={site} className="input">
           <option value="">Site : tous</option><option value="oui">Site prouvé</option><option value="non">Site introuvable</option><option value="attente">Non encore cherché</option>

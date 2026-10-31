@@ -1,11 +1,15 @@
 import Link from "next/link";
+import { redirect } from "next/navigation";
 import { requireUser } from "@/server/auth";
 import { asUser } from "@/server/db";
+import { marqueCourante } from "@/server/marque";
 
 export const dynamic = "force-dynamic";
 
 export default async function Lignes() {
   const user = await requireUser();
+  const marque = await marqueCourante(user.id);
+  if (marque) redirect(`/lignes/${marque.code}`);
   const lignes = await asUser(user.id, (sql) => sql`
     select l.*, u.nom as proprietaire,
       (select coalesce(json_object_agg(statut, comptes), '{}') from hub.v_entonnoir e where e.ligne_code = l.code) as entonnoir

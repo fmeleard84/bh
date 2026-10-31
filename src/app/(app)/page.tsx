@@ -2,6 +2,7 @@ import Link from "next/link";
 import { requireUser } from "@/server/auth";
 import { asUser } from "@/server/db";
 import { cartesLignes } from "@/server/cartes";
+import { marqueCourante } from "@/server/marque";
 import { ecarter, regenerer, reponseTraitee, tacheFaite, valider } from "./actions";
 import { CarteLigne } from "./carte-ligne";
 
@@ -20,28 +21,34 @@ const TACHE: Record<string, string> = {
  */
 export default async function MaJournee() {
   const user = await requireUser();
+  const marque = await marqueCourante(user.id);
+  const code = marque?.code ?? null;
   const { cartes, reponses, taches, brouillons } = await asUser(user.id, async (sql) => ({
-    cartes: await cartesLignes(sql),
-    reponses: await sql`select * from hub.v_a_traiter limit 50`,
+    cartes: (await cartesLignes(sql)).filter((c) => !code || c.code === code),
+    reponses: await sql`select * from hub.v_a_traiter ${code ? sql`where ligne_code = ${code}` : sql``} limit 50`,
     taches: await sql`
       select t.*, e.nom as entreprise, ct.prenom, ct.nom, ct.linkedin_url,
              coalesce(ct.telephone_mobile, ct.telephone_fixe, e.telephone) as telephone
       from hub.taches t join hub.entreprises e on e.siren = t.siren left join hub.contacts ct on ct.id = t.contact_id
-      where t.fait_le is null and t.echeance < now() + interval '1 day' order by t.echeance limit 50`,
-    brouillons: await sql`select * from hub.v_brouillons limit 20`,
+      where t.fait_le is null and t.echeance < now() + interval '1 day' ${code ? sql`and t.ligne_code = ${code}` : sql``}
+      order by t.echeance limit 50`,
+    brouillons: await sql`select * from hub.v_brouillons ${code ? sql`where ligne_code = ${code}` : sql``} limit 20`,
   }));
   const rien = reponses.length + taches.length + brouillons.length === 0;
 
   return (
     <div className="space-y-8">
       <header>
+        <div className="muted text-sm">{marque ? marque.marque : "Vue d'ensemble"}</div>
         <h1 className="text-2xl font-bold">Ma journée</h1>
-        <p className="muted text-sm">BH travaille seul ; ici, seulement ce qui attend une décision humaine, ligne par ligne.</p>
+        <p className="muted text-sm">BH travaille seul ; ici, seulement ce qui attend une décision humaine{marque ? "" : ", société par société"}.</p>
       </header>
 
-      <section className="grid gap-4 lg:grid-cols-2 2xl:grid-cols-3 items-start">
-        {cartes.map((c) => <CarteLigne key={c.code} c={c} />)}
-      </section>
+      {marque ? cartes.map((c) => <CarteLigne key={c.code} c={c} large />) : (
+        <section className="grid gap-4 lg:grid-cols-2 2xl:grid-cols-3 items-start">
+          {cartes.map((c) => <CarteLigne key={c.code} c={c} />)}
+        </section>
+      )}
 
       {rien && <p className="muted text-sm card p-5">Aucune réponse, tâche ni séquence n'attend de décision.</p>}
 

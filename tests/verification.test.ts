@@ -267,3 +267,11 @@ describe("scan technique (Isoligne)", async () => {
     expect(f[2].valeur).toMatch(/^aucune FAQ trouvée/);
   });
 });
+
+describe("connecteurs Apify", async () => {
+  const { entree } = await import("../src/server/sources/apify");
+  it("remplace {{url}} à toute profondeur, sans toucher au reste", () => {
+    expect(entree({ targetUrls: ["{{url}}"], maxPosts: 10, opts: { q: "posts de {{url}}" } }, "https://www.linkedin.com/in/x"))
+      .toEqual({ targetUrls: ["https://www.linkedin.com/in/x"], maxPosts: 10, opts: { q: "posts de https://www.linkedin.com/in/x" } });
+  });
+});

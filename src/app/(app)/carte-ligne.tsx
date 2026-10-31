@@ -6,9 +6,9 @@ import type { Carte, Point, Serie } from "@/server/cartes";
  * Une carte par ligne : d'abord ce qui attend un humain, puis ce que BH fait seul,
  * l'entonnoir, l'évolution sur 8 semaines, les points à surveiller ; la cible en dépliant.
  */
-export function CarteLigne({ c }: { c: Carte }) {
+export function CarteLigne({ c, large }: { c: Carte; large?: boolean }) {
   return (
-    <article className="card p-5 space-y-5 text-sm">
+    <article className={`card p-5 text-sm ${large ? "grid gap-6 lg:grid-cols-3 items-start [&>header]:lg:col-span-3" : "space-y-5"}`}>
       <header className="flex justify-between items-start gap-3">
         <div>
           <div className="muted text-xs">{c.marque}</div>
