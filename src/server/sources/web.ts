@@ -13,6 +13,8 @@ export interface PageLue {
   html: string;
   texte: string;
   liens: { href: string; texte: string }[];
+  /** Page vide sans JavaScript, lue par navigateur (crawl4ai). */
+  renduJs?: boolean;
 }
 
 export function htmlVersTexte(html: string): string {
@@ -83,7 +85,7 @@ async function lireAvecNavigateur(url: string): Promise<PageLue | null> {
     if (!res.ok) return null;
     const r = ((await res.json()) as { results?: { html?: string; url?: string; success?: boolean }[] }).results?.[0];
     if (!r?.success || !r.html) return null;
-    return { url: r.url ?? url, html: r.html, texte: htmlVersTexte(r.html), liens: extraireLiens(r.html, r.url ?? url) };
+    return { url: r.url ?? url, html: r.html, texte: htmlVersTexte(r.html), liens: extraireLiens(r.html, r.url ?? url), renduJs: true };
   } catch {
     return null;
   }

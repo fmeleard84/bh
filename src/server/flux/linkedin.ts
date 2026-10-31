@@ -1,3 +1,4 @@
+import { lieuxDuDepartement } from "../departements";
 import { normaliser } from "../texte";
 
 /**
@@ -5,19 +6,8 @@ import { normaliser } from "../texte";
  * Le titre doit porter le prénom ET le nom. Puis :
  *  - société : le titre ou l'extrait porte un mot distinctif de la raison sociale ou d'une enseigne ;
  *  - entreprise individuelle (raison sociale = nom du dirigeant, la règle précédente ne prouve rien) :
- *    l'extrait ou le titre porte un lieu cohérent (commune, département, région).
+ *    l'extrait ou le titre porte un lieu cohérent (commune, département, grandes villes, région ; toute la France).
  */
-const DEPARTEMENTS: Record<string, string[]> = {
-  "13": ["bouches du rhone", "marseille", "aix en provence", "provence"],
-  "84": ["vaucluse", "avignon", "provence"],
-  "83": ["var", "toulon", "provence"],
-  "06": ["alpes maritimes", "nice", "cote d azur", "cannes", "antibes"],
-  "30": ["gard", "nimes", "occitanie"],
-  "34": ["herault", "montpellier", "beziers", "occitanie"],
-  "11": ["aude", "carcassonne", "narbonne", "occitanie"],
-  "66": ["pyrenees orientales", "perpignan", "roussillon", "occitanie"],
-  "31": ["haute garonne", "toulouse", "occitanie"],
-};
 const MOTS_FAIBLES = new Set(["vins", "wine", "wines", "france", "groupe", "diffusion", "distribution", "international", "services", "conseil", "commerce", "agence", "societe"]);
 
 export interface Cible {
@@ -37,7 +27,7 @@ export function profilCorrespond(r: { url: string; titre: string; extrait: strin
   const complet = [normaliser(`${c.prenom} ${c.nom}`), normaliser(`${c.nom} ${c.prenom}`)];
   if (!complet.some((n) => titre.includes(` ${n} `))) return false;
   if (c.ei) {
-    const lieux = [c.commune ? normaliser(c.commune).replace(/\s+\d+$/, "") : "", ...(DEPARTEMENTS[c.departement ?? ""] ?? [])].filter(Boolean);
+    const lieux = [c.commune ? normaliser(c.commune).replace(/\s+\d+$/, "") : "", ...lieuxDuDepartement(c.departement)].filter(Boolean);
     return lieux.some((l) => tout.includes(` ${l} `));
   }
   const mots = [c.raisonSociale, ...c.enseignes].flatMap((x) => normaliser(x).split(" ")).filter((m) => m.length >= 4 && !MOTS_FAIBLES.has(m));

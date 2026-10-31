@@ -17,10 +17,10 @@ import { desobfusquer } from "./f4-contacts";
 const PAGES_MAX = 6;
 const CARACTERES_PAR_PAGE = 6_000;
 
-const TYPES = ["activite_declaree", "clientele", "pour_compte_de", "nb_domaines", "regions_domaines", "zone", "catalogue_pro",
+const TYPES_COMMUNS = ["activite_declaree", "clientele", "pour_compte_de", "nb_domaines", "regions_domaines", "zone", "catalogue_pro",
   "commande_en_ligne", "expedition", "equipe", "douane", "boutique_en_ligne", "autre"] as const;
 
-const SCHEMA = {
+const schema = (types: string[]) => ({
   type: "object",
   additionalProperties: false,
   required: ["personnes", "faits"],
@@ -50,21 +50,21 @@ const SCHEMA = {
         required: ["type", "preuve_url", "extrait", "valeur", "valeur_num"],
         // La citation avant la valeur : le fait se formule à partir de ce qui est écrit.
         properties: {
-          type: { type: "string", enum: TYPES },
+          type: { type: "string", enum: types },
           preuve_url: { type: "string", maxLength: 300 }, extrait: { type: "string", maxLength: 300 },
           valeur: { type: "string", maxLength: 200 }, valeur_num: { type: ["number", "null"] },
         },
       },
     },
   },
-};
+});
 
 interface Sortie {
   personnes: { prenom: string | null; nom: string; role: string | null; email: string | null; telephone: string | null; preuve_url: string }[];
   faits: { type: string; valeur: string; valeur_num: number | null; preuve_url: string; extrait: string }[];
 }
 
-const UTILES = /propos|qui-sommes|equipe|[eé]quipe|team|domaines|producteurs|vignerons|maisons|marques|portefeuille|catalogue|nos-vins|vins|selection|s[eé]lection|services|contact|mentions|legal|pro|professionnels|boutique|shop/i;
+const UTILES = /propos|qui-sommes|equipe|[eé]quipe|team|domaines|producteurs|vignerons|maisons|marques|portefeuille|catalogue|nos-vins|vins|selection|s[eé]lection|services|contact|mentions|legal|pro|professionnels|boutique|shop|produits?|products?|collections?|faq|livraison/i;
 
 export function pagesUtiles(accueil: PageLue): string[] {
   const host = new URL(accueil.url).host.replace(/^www\./, "");
@@ -101,10 +101,53 @@ export function nombreJustifie(type: string, n: number | null, extrait: string):
   return type === "nb_domaines" && extrait.split(/[,;\n•·|]/).filter((x) => x.trim().length > 2).length >= n;
 }
 
+// ─── Scan technique (lignes où scan_technique) : ce que le code voit dans le HTML, sans IA ─────
+
+export interface FaitTechnique { type: string; valeur: string; preuve_url: string; extrait: string }
+
+const PRODUIT_STRUCTURE = /"@type"\s*:\s*\[?\s*"(Product|Offer|ProductGroup)"|itemtype=["']https?:\/\/schema\.org\/(Product|Offer)["']/i;
+const PRIX = /\d{1,5}(?:[.,]\d{2})?\s?(?:€|eur\b|euros?\b)|€\s?\d{1,5}(?:[.,]\d{2})?/i;
+const FAQ = /\bfaq\b|questions?[\s-]+fr[ée]quentes?/i;
+
+/**
+ * Trois constats, écrits pour être lus tels quels par le Qualificateur. L'absence est dite
+ * « dans les pages lues » : BH ne lit que l'accueil et quelques pages, pas tout le site.
+ */
+export function scanTechnique(pages: PageLue[]): FaitTechnique[] {
+  const n = pages.length;
+  const accueil = pages[0].url;
+  const faits: FaitTechnique[] = [];
+
+  const structure = pages.find((p) => PRODUIT_STRUCTURE.test(p.html));
+  faits.push(structure
+    ? { type: "donnees_structurees", valeur: "données structurées produit présentes (schema.org)", preuve_url: structure.url, extrait: structure.html.match(PRODUIT_STRUCTURE)![0] }
+    : { type: "donnees_structurees", valeur: `aucune donnée structurée produit (schema.org) dans les ${n} pages lues`, preuve_url: accueil, extrait: "scan technique BH : ni JSON-LD Product ni microdonnées Product" });
+
+  // Un prix lisible sans JavaScript est dans le HTML servi : une page lue par navigateur ne compte pas.
+  const statiques = pages.filter((p) => !p.renduJs);
+  const avecPrix = statiques.find((p) => PRIX.test(p.texte));
+  faits.push(avecPrix
+    ? { type: "prix_sans_js", valeur: "prix lisibles sans JavaScript", preuve_url: avecPrix.url, extrait: avecPrix.texte.match(PRIX)![0] }
+    : { type: "prix_sans_js", valeur: statiques.length < n
+          ? `site affiché par JavaScript : aucun prix lisible sans JavaScript dans les ${n} pages lues`
+          : `aucun prix lisible sans JavaScript dans les ${n} pages lues`,
+        preuve_url: accueil, extrait: "scan technique BH : aucun montant en euros dans le HTML servi" });
+
+  const lienFaq = pages.flatMap((p) => p.liens).find((l) => FAQ.test(l.href) || FAQ.test(l.texte));
+  const pageFaq = pages.find((p) => FAQ.test(p.url) || FAQ.test(p.texte.slice(0, 2000)));
+  faits.push(lienFaq || pageFaq
+    ? { type: "faq_presente", valeur: "FAQ présente", preuve_url: lienFaq?.href ?? pageFaq!.url, extrait: lienFaq?.texte || "FAQ" }
+    : { type: "faq_presente", valeur: `aucune FAQ trouvée dans les ${n} pages lues ni dans leurs liens`, preuve_url: accueil, extrait: "scan technique BH : aucun lien ni titre FAQ" });
+  return faits;
+}
+
 export async function extraire(siren: string, ligneCode: string) {
   const sql = sysSql();
   const [e] = await sql`select * from hub.entreprises where siren = ${siren}`;
   if (!e?.site_verifie) return { siren, faits: 0, raison: "site non prouvé" };
+  const [l] = await sql`select faits, scan_technique from hub.lignes where code = ${ligneCode}`;
+  const propres = (l?.faits ?? {}) as Record<string, string>;
+  const types = [...TYPES_COMMUNS, ...Object.keys(propres).filter((t) => !(TYPES_COMMUNS as readonly string[]).includes(t))];
 
   const accueil = await lire(e.site_url);
   if (!accueil) return { siren, faits: 0, raison: "site illisible" };
@@ -118,13 +161,15 @@ export async function extraire(siren: string, ligneCode: string) {
 
   const contacts = await sql`select prenom, nom, qualite from hub.contacts where siren = ${siren}`;
   const { data, modele } = await json<Sortie>({
-    systeme: await prompt("extracteur"),
+    systeme: (await prompt("extracteur")) + (Object.keys(propres).length
+      ? `\n\nTypes propres à cette ligne, à relever aussi :\n${Object.entries(propres).map(([t, d]) => `- ${t} : ${d}.`).join("\n")}`
+      : ""),
     utilisateur: [
       `Société : ${e.nom} (SIREN ${siren}), ${e.commune}.`,
       `Dirigeants au registre : ${contacts.map((c) => `${c.prenom ?? ""} ${c.nom} (${c.qualite ?? "?"})`).join(", ") || "aucun"}.`,
       ...pages.map((p) => `\n=== PAGE ${p.url} ===\n${p.texte.slice(0, CARACTERES_PAR_PAGE)}`),
     ].join("\n"),
-    schema: SCHEMA,
+    schema: schema(types),
     maxTokens: 6000,
   });
 
@@ -142,6 +187,16 @@ export async function extraire(siren: string, ligneCode: string) {
                         values (${siren}, ${f.type}, ${f.valeur}, ${f.valeur_num}, ${f.preuve_url}, ${f.extrait}, ${empreinte}, ${`llm:${modele}`}, ${maintenant})
                         on conflict (empreinte) do nothing returning id`;
     gardes += r.length;
+  }
+
+  if (l?.scan_technique) {
+    for (const f of scanTechnique(pages)) {
+      const empreinte = createHash("sha256").update([siren, f.type, normaliser(f.valeur), f.preuve_url].join("|")).digest("hex");
+      const r = await sql`insert into hub.signaux (siren, type, valeur, preuve_url, extrait, empreinte, source, collecte_le)
+                          values (${siren}, ${f.type}, ${f.valeur}, ${f.preuve_url}, ${f.extrait.slice(0, 300)}, ${empreinte}, 'scan:bh', ${maintenant})
+                          on conflict (empreinte) do nothing returning id`;
+      gardes += r.length;
+    }
   }
 
   // « Hervé » sur le site et « Herve » au registre sont la même personne : on reprend l'orthographe déjà en base.

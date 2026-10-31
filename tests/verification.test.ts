@@ -227,3 +227,43 @@ describe("constats venus de LinkedIn", async () => {
     expect(c.defauts.join(" | ")).toMatch(/site alors que/);
   });
 });
+
+describe("lieux : toute la France", async () => {
+  const { profilCorrespond } = await import("../src/server/flux/linkedin");
+  it("entreprise individuelle hors des départements TTGG (Velosiq : Le Havre)", () => {
+    const ei = { prenom: "Marc", nom: "Lefebvre", ei: true, raisonSociale: "MARC LEFEBVRE", enseignes: [], commune: "MONTIVILLIERS", departement: "76" };
+    expect(profilCorrespond({ url: "https://fr.linkedin.com/in/ml", titre: "Marc Lefebvre - Commissionnaire en douane | LinkedIn", extrait: "Le Havre, Normandie, France" }, ei)).toBe(true);
+    expect(profilCorrespond({ url: "https://fr.linkedin.com/in/ml2", titre: "Marc Lefebvre - Chef | LinkedIn", extrait: "Nice, Provence-Alpes-Côte d'Azur" }, ei)).toBe(false);
+  });
+});
+
+describe("indices du métier par ligne", async () => {
+  const { indices } = await import("../src/server/flux/f5-scorer");
+  it("mots et fins de mots, liste vide sans exigence", () => {
+    const vin = indices(["vin", "oeno*", "chateau"])!;
+    expect(vin.test("agence oenologie sud")).toBe(true);
+    expect(vin.test("chateau de la tour")).toBe(true);
+    expect(vin.test("agence vinci")).toBe(false);
+    expect(indices(["transitaire", "douane"])!.test("transitaire du port")).toBe(true);
+    expect(indices([])).toBeNull();
+  });
+});
+
+describe("scan technique (Isoligne)", async () => {
+  const { scanTechnique } = await import("../src/server/flux/f3-extraire");
+  const page = (url: string, html: string, liens: { href: string; texte: string }[] = [], renduJs = false) =>
+    ({ url, html, texte: html.replace(/<[^>]+>/g, " "), liens, renduJs });
+  it("présences relevées avec leur preuve", () => {
+    const f = scanTechnique([
+      page("https://a.fr/", `<script type="application/ld+json">{"@type": "Product"}</script><p>Bougie 12,90 €</p>`, [{ href: "https://a.fr/faq", texte: "FAQ" }]),
+    ]);
+    expect(f.map((x) => x.valeur)).toEqual(["données structurées produit présentes (schema.org)", "prix lisibles sans JavaScript", "FAQ présente"]);
+    expect(f[1].extrait).toBe("12,90 €");
+  });
+  it("absences dites « dans les pages lues », prix d'une page rendue en JavaScript non comptés", () => {
+    const f = scanTechnique([page("https://b.fr/", "<p>Prix 30 €</p>", [], true), page("https://b.fr/contact", "<p>Écrivez-nous</p>")]);
+    expect(f[0].valeur).toBe("aucune donnée structurée produit (schema.org) dans les 2 pages lues");
+    expect(f[1].valeur).toMatch(/^site affiché par JavaScript : aucun prix lisible/);
+    expect(f[2].valeur).toMatch(/^aucune FAQ trouvée/);
+  });
+});

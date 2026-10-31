@@ -14,7 +14,11 @@ import { evenement } from "./runs";
  * Garde-fous côté code : un critère ou un constat qui cite un fait inexistant
  * est retiré ; la classe décide de l'écart et du re-routage, pas le modèle.
  */
-const MOTS_VIN = /\b(vin|vins|vigne|vignoble|vigneron|vignerons|cave|caves|wine|wines|cru|chateau|domaine|domaines|oeno\w*|bouteille|spirits|spiritueux|champagne|terroir|boissons?)\b/;
+/** Mots-indices de la ligne (« oeno* » : toute fin de mot) → expression ; liste vide : aucune exigence. */
+export function indices(mots: string[]): RegExp | null {
+  const motifs = mots.map((m) => normaliser(m.replace(/\*$/, "")) + (m.endsWith("*") ? "\\w*" : "")).filter((m) => m && m !== "\\w*");
+  return motifs.length ? new RegExp(`\\b(${motifs.join("|")})\\b`) : null;
+}
 
 /** « … clientèle professionnelle [2, 3]. » → « … clientèle professionnelle. » */
 const sansRenvois = (t: string) => t.replace(/\s*\[\d+(?:\s*,\s*\d+)*\]/g, "").trim();
@@ -41,7 +45,8 @@ export async function scorer(siren: string, ligneCode: string) {
   // ─── Fit : règles fixes, lisibles par un humain ─────────────────────────
   const fit = { cible: 0, nom: 0, site: 0, dirigeant: 0, joignable: 0 };
   if ((l.naf as string[]).includes(e.naf) && (l.departements as string[]).includes(e.departement)) fit.cible = 40;
-  if (MOTS_VIN.test(normaliser(`${e.nom} ${e.enseignes.join(" ")}`))) fit.nom = 10;
+  const metier = indices(l.indices_metier);
+  if (metier?.test(normaliser(`${e.nom} ${e.enseignes.join(" ")}`))) fit.nom = 10;
   if (e.site_verifie) fit.site = 20;
   if (contacts.length) fit.dirigeant = 15;
   if (contacts.some((c) => c.email_statut === "valide" || c.telephone_mobile) || e.telephone) fit.joignable = 15;
@@ -118,8 +123,8 @@ export async function scorer(siren: string, ligneCode: string) {
     const complete = contactVerifie && constats.length >= 3;
     if (complete && scoreTotal >= l.seuil_score) statut = "qualifie";
   } else if (retenue && constats.length >= 1 && contacts.some((c) => c.linkedin_url) && (l.canaux_autorises as string[]).includes("linkedin")
-             && MOTS_VIN.test(normaliser(`${e.nom} ${e.enseignes.join(" ")} ${signaux.map((x) => `${x.valeur} ${x.extrait}`).join(" ")}`))) {
-    // La voie LinkedIn exige un indice vin/boissons (nom, enseigne ou profil) : « agent commercial » seul ne dit pas de quoi.
+             && (metier?.test(normaliser(`${e.nom} ${e.enseignes.join(" ")} ${signaux.map((x) => `${x.valeur} ${x.extrait}`).join(" ")}`)) ?? true)) {
+    // La voie LinkedIn exige un indice du métier de la ligne (nom, enseigne ou profil) : « agent commercial » seul ne dit pas de quoi.
     // Voie LinkedIn : sans site, la grille ne peut pas être notée ; un agent confirmé par son profil
     // est qualifié pour le seul canal LinkedIn (humain), quel que soit le seuil.
     statut = "qualifie";
